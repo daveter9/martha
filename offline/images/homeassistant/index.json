@@ -1,0 +1,15 @@
+{
+    "schemaVersion":  2,
+    "mediaType":  "application/vnd.oci.image.index.v1+json",
+    "manifests":  [
+                      {
+                          "mediaType":  "application/vnd.oci.image.manifest.v1+json",
+                          "digest":  "sha256:e47c978e1b801466e7f62f612fd552bc3a228e077b31a3f1c22c05cf63d754da",
+                          "size":  4488,
+                          "annotations":  {
+                                              "io.containerd.image.name":  "ghcr.io/home-assistant/home-assistant:2026.9.4",
+                                              "org.opencontainers.image.ref.name":  "2026.9.4"
+                                          }
+                      }
+                  ]
+}

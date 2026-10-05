@@ -1,0 +1,13 @@
+# Large binaries go through Git LFS.
+*.iso.[0-9][0-9][0-9] filter=lfs diff=lfs merge=lfs -text
+*.exe filter=lfs diff=lfs merge=lfs -text
+*.deb filter=lfs diff=lfs merge=lfs -text
+*.gz  filter=lfs diff=lfs merge=lfs -text
+offline/images/**/blobs/** filter=lfs diff=lfs merge=lfs -text
+# Scripts that run on the Linux host must keep LF line endings.
+*.sh       text eol=lf
+*.service  text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+offline/bundle.env text eol=lf
+offline/apt/dists/** -text

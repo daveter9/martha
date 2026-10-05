@@ -1,0 +1,19 @@
+# Home Assistant Container. Deployed to /opt/homeassistant by install.sh,
+# which writes HA_IMAGE and TZ to /opt/homeassistant/.env.
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: ${HA_IMAGE:?set in .env}
+    # Offline: the image is loaded from the bundle, never pulled.
+    pull_policy: never
+    restart: unless-stopped
+    # Host networking is required for discovery (mDNS, SSDP, DHCP).
+    network_mode: host
+    # Access to USB sticks (Zigbee/Z-Wave) and Bluetooth.
+    privileged: true
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - ./config:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro

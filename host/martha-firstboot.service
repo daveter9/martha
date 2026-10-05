@@ -1,0 +1,16 @@
+[Unit]
+Description=Martha: install Docker and Home Assistant from the offline bundle
+After=local-fs.target network.target
+ConditionPathExists=/opt/martha/host/install.sh
+ConditionPathExists=!/var/lib/martha/installed
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/martha/host/install.sh
+RemainAfterExit=yes
+TimeoutStartSec=0
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+# Interrupted downloads / joins
+*.part
+*.joining
+# The ISO is stored as LFS parts (<2 GB each, GitHub limit); rebuild with "0. install os/iso.ps1 -Join"
+*.iso

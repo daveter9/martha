@@ -1,0 +1,50 @@
+# Ubuntu Server 26.04 autoinstall for the Martha Home Assistant PC.
+# make-usb.ps1 fills in the placeholders and writes the result to the root of the
+# USB stick as autoinstall.yaml, where the installer picks it up. The installer asks
+# "Continue with autoinstall?" before it touches any disk.
+autoinstall:
+  version: 1
+  locale: __LOCALE__
+  keyboard:
+    layout: __KEYBOARD__
+  timezone: __TIMEZONE__
+  # Offline: never look for a newer installer, mirror, codecs or drivers online.
+  refresh-installer:
+    update: false
+  apt:
+    geoip: false
+    fallback: offline-install
+  codecs:
+    install: false
+  drivers:
+    install: false
+  network:
+    version: 2
+    ethernets:
+      lan:
+        match:
+          name: "e*"
+        dhcp4: true
+        # Don't block boot waiting for a network that may not be there.
+        optional: true
+  # WIPES the largest disk (the USB stick itself is never a candidate).
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+  identity:
+    hostname: __HOSTNAME__
+    username: __USERNAME__
+    password: '__PASSWORD_HASH__'
+  ssh:
+    install-server: true
+    allow-pw: __ALLOW_PW__
+    authorized-keys: __SSH_KEYS__
+  late-commands:
+    - mkdir -p /target/opt/martha
+    - cp -r /cdrom/martha/host /cdrom/martha/offline /target/opt/martha/
+    - chmod -R u=rwX,go=rX /target/opt/martha
+    - cp /target/opt/martha/host/martha-firstboot.service /target/etc/systemd/system/
+    - curtin in-target --target=/target -- systemctl enable martha-firstboot.service
+  # Power off instead of rebooting, so the USB stick can be removed first.
+  shutdown: poweroff
