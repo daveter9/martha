@@ -81,6 +81,10 @@ apt_opts=(
     -o "Dir::Cache=$work/cache"
     -o "Acquire::Languages=none"
     -o "Acquire::Check-Valid-Until=false"
+    # The partial mirror only has Packages indexes; the system config also asks for
+    # command-not-found and AppStream metadata, and the missing CNF files fail update.
+    -o "Acquire::IndexTargets::deb::CNF::DefaultEnabled=false"
+    -o "Acquire::IndexTargets::deb::DEP-11::DefaultEnabled=false"
     -o "APT::Sandbox::User=root"
     -o "DPkg::Lock::Timeout=600"
 )
