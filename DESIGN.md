@@ -29,8 +29,9 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C17 | Een wijziging gaat pas live na een **geslaagde test op staging en goedkeuring in de HA Companion-app**. | De goedkeuring loopt via productie-HA met een eenmalige nonce die de agent nooit ziet. Ook een rollback-verzoek van de agent vraagt goedkeuring. |
 | C18 | Deploy en rollback raken **de database en niet-getrackte bestanden nooit**. | Alleen bestanden op de allowlist van de config-repo worden geschreven. Rollback is een revert-commit; de git-historie wordt nooit herschreven. |
 | C19 | **Vóór elke deploy een volledige back-up**, en niets verdwijnt zonder retentiebeleid. | `martha-ha backup` maakt een consistente kopie van de hele config-map plus een `pg_dump` van de database (die staat sinds ADR-001 in PostgreSQL, niet meer in de config-map). Te weinig vrije schijf breekt de deploy af. |
-| C20 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
-| C21 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
+| C20 | Prompts van de agent gaan **alleen naar een attested TEE-endpoint, nooit via een router**. | Phala direct op `inference.phala.com` of `tee.redpill.ai`, nooit `api.redpill.ai` of OpenRouter. Een lokale proxy controleert de attestatie vóór elk verzoek (zie [ADR-002](docs/adr/ADR-002-inference-provider.md)). |
+| C21 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
+| C22 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
 
 ## Architectuurbeslissingen
 
@@ -153,7 +154,7 @@ HA leest en stuurt alle apparaten via zijn integraties. Recorder en LTSS schrijv
   vanaf de eerste start PostgreSQL gebruikt.
 - **LTSS** (v2.1.1) staat in de bundle, niet via HACS (C1). Zijn requirements `psycopg2-binary`
   en `geoalchemy2` zitten niet in het HA-image (dat heeft wel `psycopg2` en `sqlalchemy`) en
-  komen als wheels mee (C20). `download.ps1` haalt van `psycopg2-binary` de musllinux-wheels
+  komen als wheels mee (C21). `download.ps1` haalt van `psycopg2-binary` de musllinux-wheels
   voor alle CPython-versies; `uv` kiest de wheel die past bij de Python van het image. Die map
   wordt bij elke `install.sh` opnieuw opgebouwd, dus een HA-update met een nieuwere Python werkt
   zolang de wheel voor die versie in de bundle zit. *Gevolg:* via `PYTHONPATH` overschaduwt
@@ -205,6 +206,9 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   praat met `inference.local`. De gebruiker levert de key zelf aan bij `install-agent.sh`.
   Ubuntu 26.04 is bij NVIDIA "tested with limitations"; k3s in Docker vraagt
   `"default-cgroupns-mode": "host"` in `/etc/docker/daemon.json`.
+- **Inference:** GLM 5.3 Flash (`z-ai/glm-5.3-flash`) rechtstreeks bij Phala Confidential AI,
+  achter een lokale attestatie-verifiërende proxy. Beslissing en onderbouwing in
+  [ADR-002](docs/adr/ADR-002-inference-provider.md), opzetten in [docs/phala.md](docs/phala.md).
 - **Geheugen:** martha heeft nu 7,1 GB RAM (NemoClaw-minimum 8 GB of 8 GB swap). Tot de
   upgrade naar 32 GB vergroot `install-agent.sh` de swap en draait staging alleen zolang er
   een voorstel openstaat.
@@ -234,3 +238,6 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 - LTSS is een community-integratie zonder onderhoudsgarantie (laatste release 2024-12).
   Terugvaloptie volgens ADR-001: `mqtt_statestream` → Telegraf → Timescale.
 - De database-opzet is nog niet op martha getest (alleen `bash -n` en het ophalen van de bundle).
+- Attestatieproxy voor Phala: teep verifieert het ACI/1-formaat van `inference.phala.com`
+  nog niet (zie [docs/phala.md](docs/phala.md#stap-6-attestatieproxy-open-punt)). Ook nog
+  open: waar de proxy draait ten opzichte van de OpenShell-sandbox.
