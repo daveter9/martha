@@ -13,4 +13,7 @@
   Linux-omgeving wilt gebruiken.
 - **Offline installeren is een harde eis.** Installeren en updaten op de doel-pc mag geen
   netwerk nodig hebben. Home Assistant mag in gebruik wel internet gebruiken, maar moet
-  ook zonder internet werken (zie C1 en C1a in DESIGN.md).
+  ook zonder internet werken (zie C1 en C1a in DESIGN.md). Uitzondering: de agent-laag in
+  `agent/` mag online installeren (C15).
+- **Plan per fase.** De Hermes-agent wordt gebouwd in fasen (zie *Agent (Hermes)* in
+  DESIGN.md); elke fase wordt apart getest op martha en gecommit.
