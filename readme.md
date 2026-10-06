@@ -6,6 +6,8 @@ dat gebruiken; zonder internet blijft hij werken, alleen cloud-integraties niet.
 
 - Design constraints en architectuurbeslissingen staan in [DESIGN.md](DESIGN.md).
 - Werkafspraken voor Claude staan in [CLAUDE.md](CLAUDE.md).
+- Grotere beslissingen staan als ADR in [docs/adr/](docs/adr/); de inference-provider voor de
+  agent opzetten staat in [docs/phala.md](docs/phala.md).
 
 Er zijn twee installatieroutes:
 
