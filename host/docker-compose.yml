@@ -1,5 +1,6 @@
-# Home Assistant Container. Deployed to /opt/homeassistant by install.sh,
-# which writes HA_IMAGE and TZ to /opt/homeassistant/.env.
+# Home Assistant Container with TimescaleDB. Deployed to /opt/homeassistant by install.sh,
+# which writes HA_IMAGE, TSDB_IMAGE and TZ to /opt/homeassistant/.env and the database
+# password to /opt/homeassistant/db.env.
 services:
   homeassistant:
     container_name: homeassistant
@@ -11,9 +12,45 @@ services:
     network_mode: host
     # Access to USB sticks (Zigbee/Z-Wave) and Bluetooth.
     privileged: true
+    depends_on:
+      timescaledb:
+        condition: service_healthy
     environment:
       TZ: ${TZ:-Etc/UTC}
+      # Requirements of custom integrations (LTSS), installed from the bundle's wheels
+      # by install.sh, so Home Assistant never has to fetch them from the internet.
+      PYTHONPATH: /pydeps
     volumes:
       - ./config:/config
+      - ./pydeps:/pydeps:ro
       - /etc/localtime:/etc/localtime:ro
       - /run/dbus:/run/dbus:ro
+
+  # Recorder and long-term storage (LTSS) in one PostgreSQL server (ADR-001).
+  timescaledb:
+    container_name: timescaledb
+    image: ${TSDB_IMAGE:?set in .env}
+    pull_policy: never
+    restart: unless-stopped
+    env_file: db.env
+    environment:
+      POSTGRES_USER: homeassistant
+      POSTGRES_DB: homeassistant
+      TZ: ${TZ:-Etc/UTC}
+      # Offline: no telemetry. timescaledb-tune sizes PostgreSQL for this much RAM
+      # (only at first start), leaving the rest for Home Assistant and the agent.
+      TIMESCALEDB_TELEMETRY: "off"
+      TS_TUNE_MEMORY: 1GB
+    # Only Home Assistant on this host; from elsewhere use an SSH tunnel.
+    ports:
+      - "127.0.0.1:5432:5432"
+    shm_size: 256mb
+    volumes:
+      # The parent of PGDATA, as recommended for PostgreSQL 18+ images.
+      - ./postgres:/var/lib/postgresql
+    healthcheck:
+      # Over TCP: the temporary server during first-time init only listens on a socket.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "homeassistant", "-d", "homeassistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 60

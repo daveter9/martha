@@ -1,0 +1,28 @@
+# Storage of states in PostgreSQL/TimescaleDB (ADR-001).
+# Copied to /opt/homeassistant/config/packages by install.sh when it is missing;
+# install.sh never overwrites it, so edit it here on the server.
+# martha_db_url is written to secrets.yaml by install.sh.
+
+# The recorder (history, logbook, energy dashboard) uses PostgreSQL instead of SQLite.
+recorder:
+  db_url: !secret martha_db_url
+  # Raw states for history graphs; long-term statistics (5 min/hour) are kept forever.
+  purge_keep_days: 10
+
+# Raw states to TimescaleDB (table ltss); retention and aggregates: host/db/timescale.sql.
+ltss:
+  db_url: !secret martha_db_url
+  # One-day chunks in microseconds; matches the 30-day retention in timescale.sql.
+  chunk_time_interval: 86400000000
+  # New sensors are stored automatically when their domain is listed here.
+  include:
+    domains:
+      - sensor
+      - binary_sensor
+      - number
+      - climate
+      - water_heater
+  # Example, for noisy entities that are not worth keeping:
+  # exclude:
+  #   entity_globs:
+  #     - sensor.*_uptime
