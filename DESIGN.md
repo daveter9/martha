@@ -24,6 +24,11 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C12 | De Home Assistant-layers zijn **zstd**-gecomprimeerd. | Docker ≥ 23 nodig; docker.io 29 voldoet. |
 | C13 | Op de Windows-machine is **Git for Windows** nodig (met Git LFS). | `make-usb.ps1` gebruikt de `openssl.exe` daaruit voor de wachtwoord-hash. |
 | C14 | Werkafspraken en beslissingen staan **in de repo**, niet in een lokaal geheugen. | `CLAUDE.md` (werkafspraken) en dit bestand. |
+| C15 | De **agent-laag** (Hermes in NemoClaw) is optioneel en **mag online installeren**. | C1 blijft gelden voor de HA-laag (`host/`, `offline/`), inclusief config-repo, back-up, staging en martha-gate. HA werkt volledig zonder agent. De agent-laag staat apart in `agent/`. |
+| C16 | De agent heeft **nooit schrijfrechten op productie-HA**. | Geen productie-token, geen Docker-socket, geen host-shell in de sandbox. Alleen martha-gate (door ons geschreven) wijzigt productie. |
+| C17 | Een wijziging gaat pas live na een **geslaagde test op staging en goedkeuring in de HA Companion-app**. | De goedkeuring loopt via productie-HA met een eenmalige nonce die de agent nooit ziet. Ook een rollback-verzoek van de agent vraagt goedkeuring. |
+| C18 | Deploy en rollback raken **de database en niet-getrackte bestanden nooit**. | Alleen bestanden op de allowlist van de config-repo worden geschreven. Rollback is een revert-commit; de git-historie wordt nooit herschreven. |
+| C19 | **Vóór elke deploy een volledige back-up**, en niets verdwijnt zonder retentiebeleid. | `martha-ha backup` maakt een consistente kopie van de hele config-map, inclusief database. Te weinig vrije schijf breekt de deploy af. |
 
 ## Architectuurbeslissingen
 
@@ -122,6 +127,45 @@ Een nieuwe bundle (`download.ps1`) plus `install.sh` op de doel-pc. Dat is idemp
 compose maakt de container opnieuw aan. **Niet** inbegrepen: offline security-updates
 van het hele OS. Dat zou een volledigere mirror vragen en is een open punt.
 
+### Agent (Hermes): HA configureren zonder schrijfrechten op productie
+Doel: een Hermes-agent (Nous Research) die HA echt configureert (automations, scripts,
+helpers, dashboards, packages), via Telegram met de gebruiker praat en zelf verbetertips stuurt.
+
+```
+Telefoon (Telegram)  <->  Hermes in OpenShell-sandbox (NemoClaw)
+                              | alleen HTTP naar martha-gate (L7-policy)
+                              v
+                         martha-gate (host, systemd, eigen user)
+                           |-- read-only proxy naar productie-HA (alleen GET)
+                           |-- config-repo (voorstellen = git-patches)
+                           |-- staging-HA (internal Docker-netwerk)
+                           '-- deploy/rollback na goedkeuring
+Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command--> martha-gate
+```
+
+- **Isolatie:** NVIDIA NemoClaw met OpenShell. Netwerk deny-by-default met L7-inspectie,
+  Landlock en seccomp. De inference-key en het Telegram-token beheert OpenShell; de agent
+  praat met `inference.local`. De gebruiker levert de key zelf aan bij `install-agent.sh`.
+  Ubuntu 26.04 is bij NVIDIA "tested with limitations"; k3s in Docker vraagt
+  `"default-cgroupns-mode": "host"` in `/etc/docker/daemon.json`.
+- **Geheugen:** martha heeft nu 7,1 GB RAM (NemoClaw-minimum 8 GB of 8 GB swap). Tot de
+  upgrade naar 32 GB vergroot `install-agent.sh` de swap en draait staging alleen zolang er
+  een voorstel openstaat.
+- **Config-repo** (`/var/lib/martha/ha-config.git`) met een allowlist: `configuration.yaml`,
+  `packages/`, `automations.yaml`, `scripts.yaml`, `scenes.yaml`, `blueprints/`, YAML-dashboards,
+  en uit `.storage` alleen dashboards, helpers en de area-, floor- en label-registry.
+  Nooit getrackt: `secrets.yaml`, de database, `.storage/auth*`, `http*`,
+  `core.config_entries` (credentials), `core.restore_state`, logs.
+  Vóór elke deploy commit `martha-ha sync` de productiestaat, zodat wijzigingen via de UI nooit verloren gaan.
+- **Staging-HA:** hetzelfde image, naast productie, op een `internal` Docker-netwerk (geen LAN,
+  geen internet), niet privileged, database in het geheugen, dummy-secrets. Op het LAN
+  bereikbaar via `http://martha.local:8124` (TCP-forward door martha-gate), met een eigen
+  login, zodat de gebruiker in de Companion-app tussen staging en productie kan wisselen.
+  Staging bewijst dat de config laadt; echte apparaten testen kan alleen in productie, en
+  daarvoor is er de rollback.
+- **Nieuwe integraties** (config flows met credentials) vallen buiten de agent: die stelt hij
+  voor en legt hij uit, de gebruiker voegt ze toe in de UI.
+
 ## Open punten
 - Offline OS-updates (zie hierboven).
-- Back-up van `/opt/homeassistant/config`.
+- Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
