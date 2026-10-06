@@ -104,6 +104,15 @@ Uitgewerkt ontwerp:
 - Een nonce een tweede keer gebruiken moet falen.
 - Een rollback-verzoek werkt.
 
+## Let op bij hervatten: parallel werk op master
+Op master staat ook werk uit een andere sessie: TimescaleDB (ADR-001) en een ADR over de
+inference-provider (Phala, `docs/phala.md`). Controleer daarom eerst:
+- **Back-ups:** de recorder staat nu in PostgreSQL (`/opt/homeassistant/postgres`). De
+  back-up van `martha-ha` dekt alleen SQLite en de config-map. Om C19 (geen dataverlies)
+  waar te maken, moet `martha-ha backup` ook een `pg_dump` maken, of een consistente
+  kopie van de database.
+- **Provider:** of de provider-keuze uit ADR-002 de open vraag hierboven al beantwoordt.
+
 ## Daarna
 - **Fase 4:** `agent/install-agent.sh`, met NemoClaw/Hermes (online), de `daemon.json`-fix
   voor cgroupns, de swap tot 8 GB, `agent/policy/martha.yaml` en de skill `agent/skills/martha-ha/`.
