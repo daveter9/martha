@@ -44,6 +44,9 @@ zelf** de handtekening, de index-hashes en de `.deb`-hashes. De Windows-machine 
 niet vertrouwd te worden: GPG-verificatie gebeurt op de doel-pc met diens eigen keyring.
 apt draait met tijdelijke sources, lists en cache, zodat de apt-configuratie van het
 systeem niet verandert. `Check-Valid-Until=false`, zodat een oudere bundle blijft werken.
+De mirror bevat alleen `Packages`-indexen. De index-targets voor command-not-found (`CNF`)
+en AppStream (`DEP-11`) staan daarom uit; anders faalt `apt-get update` op Ubuntu Server
+(gevonden bij de eerste echte installatie, 2026-10-06).
 
 *Bekend risico:* de closure is berekend zonder te weten wat er al op de doel-pc staat.
 apt upgradet een geïnstalleerde dependency alleen als een versie-eis dat afdwingt. Is
