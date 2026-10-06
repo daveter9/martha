@@ -1,0 +1,15 @@
+{
+    "schemaVersion":  2,
+    "mediaType":  "application/vnd.oci.image.index.v1+json",
+    "manifests":  [
+                      {
+                          "mediaType":  "application/vnd.oci.image.manifest.v1+json",
+                          "digest":  "sha256:cdf97a4b5be91038b5c1be0ad304c5d5746132992e54f7dd26ec467a6d005755",
+                          "size":  3343,
+                          "annotations":  {
+                                              "io.containerd.image.name":  "docker.io/timescale/timescaledb:2.30.2-pg18",
+                                              "org.opencontainers.image.ref.name":  "2.30.2-pg18"
+                                          }
+                      }
+                  ]
+}
