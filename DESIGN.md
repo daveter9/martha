@@ -49,7 +49,7 @@ systeem niet verandert. `Check-Valid-Until=false`, zodat een oudere bundle blijf
 apt upgradet een geïnstalleerde dependency alleen als een versie-eis dat afdwingt. Is
 die nieuwere versie strikt gekoppeld aan een package dat niet in de bundle zit (bijvoorbeeld
 `libsystemd0` en `systemd`), dan faalt `apt-get install` met een duidelijke melding. De
-oplossing is dat package toevoegen via `download.ps1 -Packages docker.io,docker-compose-v2,<extra>`.
+oplossing is dat package toevoegen via `download.ps1 -Packages docker.io,docker-compose-v2,avahi-daemon,<extra>`.
 Met de 26.04.1-ISO en de bundle van 2026-10-05 is dat in de praktijk nog niet getest
 op echte hardware.
 
@@ -66,6 +66,14 @@ versies heen gelijk blijven niet dubbel in LFS komen. `install.sh` laadt het met
 `network_mode: host` (nodig voor discovery: mDNS, SSDP en DHCP), `privileged: true`
 (USB-sticks, Bluetooth), `/run/dbus` read-only. De config staat in
 `/opt/homeassistant/config`. `restart: unless-stopped`, dus Docker start HA bij elke boot.
+
+### Vindbaar als `martha.local`: avahi-daemon
+`avahi-daemon` staat in de bundle (naast `docker.io` en `docker-compose-v2`) en wordt door
+`install.sh` geïnstalleerd en aangezet, in beide routes. Daarmee is de pc via mDNS te vinden
+als `<hostnaam>.local`, standaard `martha.local`, ook zonder DNS-server of internet.
+`install.sh` zet `deny-interfaces=docker0` in `/etc/avahi/avahi-daemon.conf`, anders publiceert
+avahi ook het onbereikbare adres van de Docker-bridge (172.17.0.1). Home Assistant draait met
+host-networking een eigen mDNS-stack (zeroconf) naast avahi; beide delen poort 5353, zoals op HA OS.
 
 ### Route A: autoinstall
 `autoinstall.yaml` staat in de root van de USB-stick (Ubuntu 24.04+ leest die vanzelf).

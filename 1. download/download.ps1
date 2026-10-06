@@ -27,7 +27,8 @@ param(
     [string]$Suite = 'resolute',
     [string[]]$Components = @('main', 'universe'),
     [string]$Arch = 'amd64',
-    [string[]]$Packages = @('docker.io', 'docker-compose-v2'),
+    # avahi-daemon makes the PC reachable as <hostname>.local (mDNS).
+    [string[]]$Packages = @('docker.io', 'docker-compose-v2', 'avahi-daemon'),
     [string]$Registry = 'ghcr.io',
     [string]$ImageRepo = 'home-assistant/home-assistant'
 )

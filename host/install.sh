@@ -95,6 +95,19 @@ systemctl enable --now docker.service
 for _ in $(seq 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
 docker info >/dev/null 2>&1 || die "docker daemon did not start"
 
+# avahi-daemon announces <hostname>.local. Keep it off the Docker bridge, otherwise
+# it also publishes 172.17.0.1 and clients may pick that unreachable address.
+AVAHI_CONF=/etc/avahi/avahi-daemon.conf
+if [ -f "$AVAHI_CONF" ]; then
+    if grep -q '^#\?deny-interfaces=' "$AVAHI_CONF"; then
+        sed -i 's/^#\?deny-interfaces=.*/deny-interfaces=docker0/' "$AVAHI_CONF"
+    else
+        sed -i 's/^\[server\]$/[server]\ndeny-interfaces=docker0/' "$AVAHI_CONF"
+    fi
+    systemctl enable avahi-daemon.service
+    systemctl restart avahi-daemon.service
+fi
+
 # --- 2. Home Assistant image ---------------------------------------------------
 if docker image inspect "$HA_IMAGE" >/dev/null 2>&1; then
     log "image $HA_IMAGE already present"
@@ -122,4 +135,4 @@ install -d -m 0755 "$STATE_DIR"
 cp "$OFFLINE/bundle.env" "$STATE_DIR/installed"
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-log "done: Home Assistant $HA_VERSION is starting on http://${ip:-<ip-of-this-pc>}:8123"
+log "done: Home Assistant $HA_VERSION is starting on http://$(hostname).local:8123 (http://${ip:-<ip-of-this-pc>}:8123)"

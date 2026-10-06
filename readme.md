@@ -181,7 +181,10 @@ Het pad naar de bundle mag geen spaties bevatten.
 
 ## Na de installatie
 
-Open `http://<ip-van-de-pc>:8123` in een browser en doorloop de onboarding van Home Assistant.
+Open `http://martha.local:8123` in een browser en doorloop de onboarding van Home Assistant.
+`install.sh` installeert `avahi-daemon`, zodat de pc via mDNS als `<hostnaam>.local` te vinden is
+(Windows 10+, macOS, iOS en de meeste Linux-desktops ondersteunen dat). Lukt dat niet, gebruik dan
+het IP-adres: `http://<ip-van-de-pc>:8123`.
 
 ```bash
 sudo docker ps                                          # draait de container 'homeassistant'?
