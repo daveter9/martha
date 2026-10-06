@@ -176,6 +176,16 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   login, zodat de gebruiker in de Companion-app tussen staging en productie kan wisselen.
   Staging bewijst dat de config laadt; echte apparaten testen kan alleen in productie, en
   daarvoor is er de rollback.
+  - Vast adres `172.30.53.10` op netwerk `martha-staging` (`172.30.53.0/24`, `internal`).
+    Een internal netwerk kan geen poort publiceren, maar de host bereikt de container wel.
+    `martha-staging-proxy.service` (DynamicUser, geen Docker-toegang) forwardt daarom LAN-poort
+    8124 naar staging. Getest op martha (2026-10-06): de host bereikt staging; staging bereikt
+    de router, het internet en productie-HA niet.
+  - Staging krijgt geen registries of `config_entries` van productie, alleen de getrackte
+    bestanden. Daarmee zijn er ook geen credentials in staging. Entities uit productie bestaan
+    in staging dus niet; dashboards tonen ze als "niet beschikbaar".
+  - `martha-ha staging test` = `check_config` plus staging opstarten met de logcontrole van de
+    health-check. Een ongeldige automation-trigger wordt zo vóór productie afgekeurd.
 - **Nieuwe integraties** (config flows met credentials) vallen buiten de agent: die stelt hij
   voor en legt hij uit, de gebruiker voegt ze toe in de UI.
 

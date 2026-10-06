@@ -223,6 +223,28 @@ herstart of herlaadt HA. Staan er daarna configfouten in de log, dan draait hij 
 automatisch terug. Een rollback is altijd een nieuwe versie; er verdwijnt nooit iets uit
 de geschiedenis.
 
+### Staging: wijzigingen eerst uitproberen
+
+Naast productie (poort 8123) kan een tweede Home Assistant draaien: **staging**, op
+`http://martha.local:8124`. Staging zit op een afgesloten Docker-netwerk: hij kan geen
+apparaten schakelen en heeft geen internet. Je ziet er de automations, scripts, helpers en
+dashboards van een voorstel; apparaten staan er op "niet beschikbaar".
+
+```bash
+sudo martha-ha staging up              # staging met de huidige productieconfig
+sudo martha-ha staging test <voorstel> # check_config + staging opstarten; faalt bij configfouten
+sudo martha-ha staging down            # staging stoppen (logins en instellingen blijven bewaard)
+```
+
+Eenmalig instellen:
+1. Open `http://martha.local:8124` en doorloop de onboarding. Noem hem **Martha STAGING** en
+   gebruik gerust dezelfde gebruikersnaam; staging heeft eigen logins. Doe dit meteen: tot
+   dan kan iedereen op je netwerk die account aanmaken.
+2. In de Companion-app: *Instellingen → Companion-app → Servers → Server toevoegen*, met
+   `http://martha.local:8124`. Bovenin de app wissel je tussen Martha en Martha STAGING.
+
+Staging krijgt nooit echte geheimen: `secrets.yaml` bevat daar dummy-waarden.
+
 `restore` zet een **hele** back-up terug, dus ook de database van dat moment. De
 huidige config-map blijft ernaast staan als `/opt/homeassistant/config.before-restore-<tijd>`;
 die ruim je zelf op als alles goed is.
