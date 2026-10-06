@@ -4,6 +4,7 @@
   niet in een lokaal geheugen: werkafspraken in dit bestand, design constraints en
   architectuurbeslissingen in [DESIGN.md](DESIGN.md). Nieuwe constraints die je
   tegenkomt neem je daar meteen op.
+- **Commits.** Conventional commits, logisch opgesplitst. Push na elke commit meteen.
 - **Taal.** Overleg en documentatie in het Nederlands; code en commentaar in scripts in het Engels.
 - **Architectuurvragen** stel je aan de gebruiker, in plaats van zelf te kiezen.
 - **Niet testen in WSL.** Gebruik de WSL-distro's van de gebruiker niet om iets te
