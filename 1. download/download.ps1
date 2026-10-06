@@ -7,9 +7,11 @@
     InRelease + Packages.gz files plus only the .debs (with their full dependency
     closure) needed for $Packages. The target verifies it with its own Ubuntu
     archive keyring, so no trust is placed in this Windows machine.
-  - Downloads the Home Assistant container image for linux/amd64 straight from the
-    registry (no Docker needed) and stores it as an OCI image layout under
-    offline\images\homeassistant, which `docker load` accepts.
+  - Downloads the Home Assistant and TimescaleDB container images for linux/amd64
+    straight from their registries (no Docker needed) and stores them as OCI image
+    layouts under offline\images\<name>, which `docker load` accepts.
+  - Downloads the LTSS custom component (offline\custom_components\ltss) and the
+    wheels it needs that are not in the Home Assistant image (offline\wheels).
   - Writes offline\bundle.env, read by host/install.sh.
 
   Safe to re-run: files that already exist with the correct hash are skipped, and
@@ -29,8 +31,12 @@ param(
     [string]$Arch = 'amd64',
     # avahi-daemon makes the PC reachable as <hostname>.local (mDNS).
     [string[]]$Packages = @('docker.io', 'docker-compose-v2', 'avahi-daemon'),
-    [string]$Registry = 'ghcr.io',
-    [string]$ImageRepo = 'home-assistant/home-assistant'
+    # TimescaleDB image tag on Docker Hub (timescale/timescaledb); a fixed version.
+    [string]$TimescaleVersion = '2.30.2-pg18',
+    # LTSS release tag (github.com/freol35241/ltss).
+    [string]$LtssVersion = 'v2.1.1',
+    # Requirements of LTSS that the Home Assistant image lacks, pinned (name==version).
+    [string[]]$Wheels = @('psycopg2-binary==2.9.13', 'geoalchemy2==0.20.0')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,7 +46,8 @@ Add-Type -AssemblyName System.Net.Http
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Offline = Join-Path $RepoRoot 'offline'
 $AptRoot = Join-Path $Offline 'apt'
-$ImgRoot = Join-Path $Offline 'images\homeassistant'
+$WheelRoot = Join-Path $Offline 'wheels'
+$LtssRoot = Join-Path $Offline 'custom_components\ltss'
 $Pockets = @($Suite, "$Suite-updates", "$Suite-security")
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
@@ -222,13 +229,23 @@ function Sync-AptPackages {
 }
 #endregion
 
-#region Container image
+#region Container images
 $Http = New-Object System.Net.Http.HttpClient((New-Object System.Net.Http.HttpClientHandler -Property @{ AllowAutoRedirect = $false }))
 $Http.Timeout = [TimeSpan]::FromMinutes(30)
 
-function Invoke-Registry([string]$path, [string[]]$accept, [string]$token) {
+function Get-RegistryToken($src) {
+    # Standard token flow: the 401 from /v2/ names the auth realm and service.
+    $resp = $Http.GetAsync("https://$($src.Host)/v2/").GetAwaiter().GetResult()
+    $challenge = "$($resp.Headers.WwwAuthenticate)"; $resp.Dispose()
+    $realm = [regex]::Match($challenge, 'realm="([^"]+)"').Groups[1].Value
+    $service = [regex]::Match($challenge, 'service="([^"]+)"').Groups[1].Value
+    if (-not $realm) { throw "No token realm from $($src.Host): $challenge" }
+    (Invoke-RestMethod -UseBasicParsing "${realm}?service=$service&scope=repository:$($src.Repo):pull").token
+}
+
+function Invoke-Registry($src, [string]$path, [string[]]$accept, [string]$token) {
     # Follows redirects manually: blob URLs redirect to a CDN that must not get the bearer token.
-    $url = "https://$Registry/v2/$ImageRepo/$path"
+    $url = "https://$($src.Host)/v2/$($src.Repo)/$path"
     $auth = $true
     for ($n = 0; $n -lt 5; $n++) {
         $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $url)
@@ -249,12 +266,12 @@ function Get-Sha256Bytes([byte[]]$bytes) {
     -join ($h.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') })
 }
 
-function Save-Blob([string]$digest, [string]$token, $keep) {
-    $dest = Join-Path $ImgRoot ("blobs\sha256\" + $digest.Substring(7))
+function Save-Blob($src, [string]$digest, [string]$token, $keep) {
+    $dest = Join-Path $src.Dir ("blobs\sha256\" + $digest.Substring(7))
     [void]$keep.Add($dest)
     if ((Test-Path -LiteralPath $dest) -and ('sha256:' + (Get-Sha256 $dest)) -eq $digest) { return $dest }
     New-Item -ItemType Directory -Force (Split-Path -Parent $dest) | Out-Null
-    $resp = Invoke-Registry "blobs/$digest" @('*/*') $token
+    $resp = Invoke-Registry $src "blobs/$digest" @('*/*') $token
     $tmp = "$dest.part"
     $out = [IO.File]::Create($tmp)
     try { $resp.Content.ReadAsStreamAsync().GetAwaiter().GetResult().CopyTo($out) } finally { $out.Dispose(); $resp.Dispose() }
@@ -264,19 +281,21 @@ function Save-Blob([string]$digest, [string]$token, $keep) {
     return $dest
 }
 
-function Sync-Image {
-    Write-Step "Image $Registry/${ImageRepo}:$HaVersion (linux/$Arch)"
-    $token = (Invoke-RestMethod -UseBasicParsing "https://$Registry/token?scope=repository:${ImageRepo}:pull&service=$Registry").token
+function Sync-Image($src) {
+    # $src: Name (for messages), Host (registry API), Repo, RefName (name for docker),
+    # Tag, Dir (OCI layout), and VersionLabel to resolve a floating tag like 'stable'.
+    Write-Step "Image $($src.RefName):$($src.Tag) (linux/$Arch)"
+    $token = Get-RegistryToken $src
     $accept = @('application/vnd.oci.image.index.v1+json', 'application/vnd.docker.distribution.manifest.list.v2+json',
                 'application/vnd.oci.image.manifest.v1+json', 'application/vnd.docker.distribution.manifest.v2+json')
-    $resp = Invoke-Registry "manifests/$HaVersion" $accept $token
+    $resp = Invoke-Registry $src "manifests/$($src.Tag)" $accept $token
     $bytes = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult(); $resp.Dispose()
     $doc = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
     if ($doc.manifests) {
         # Multi-arch index: keep only the amd64 manifest, so the layout is complete for one platform.
         $entry = $doc.manifests | Where-Object { $_.platform.os -eq 'linux' -and $_.platform.architecture -eq $Arch -and -not $_.platform.variant } | Select-Object -First 1
-        if (-not $entry) { throw "No linux/$Arch image in $HaVersion" }
-        $resp = Invoke-Registry "manifests/$($entry.digest)" $accept $token
+        if (-not $entry) { throw "No linux/$Arch image in $($src.Tag)" }
+        $resp = Invoke-Registry $src "manifests/$($entry.digest)" $accept $token
         $bytes = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult(); $resp.Dispose()
         $doc = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
     }
@@ -284,20 +303,23 @@ function Sync-Image {
     $digest = 'sha256:' + (Get-Sha256Bytes $bytes)
 
     $keep = New-Object 'System.Collections.Generic.HashSet[string]'
-    $mdest = Join-Path $ImgRoot ("blobs\sha256\" + $digest.Substring(7))
+    $mdest = Join-Path $src.Dir ("blobs\sha256\" + $digest.Substring(7))
     New-Item -ItemType Directory -Force (Split-Path -Parent $mdest) | Out-Null
     [IO.File]::WriteAllBytes($mdest, $bytes); [void]$keep.Add($mdest)
 
-    $cfgPath = Save-Blob $doc.config.digest $token $keep
-    $cfg = [IO.File]::ReadAllText($cfgPath) | ConvertFrom-Json
-    $version = $cfg.config.Labels.'org.opencontainers.image.version'
-    if (-not $version) { $version = $HaVersion }
-    if ($version -eq 'stable' -or $version -eq 'latest') { throw "Could not determine the version of $HaVersion" }
+    $cfgPath = Save-Blob $src $doc.config.digest $token $keep
+    $version = $src.Tag
+    if ($src.VersionLabel) {
+        $cfg = [IO.File]::ReadAllText($cfgPath) | ConvertFrom-Json
+        $label = $cfg.config.Labels.($src.VersionLabel)
+        if ($label) { $version = $label }
+        if ($version -eq 'stable' -or $version -eq 'latest') { throw "Could not determine the version of $($src.Tag)" }
+    }
     $total = 0
-    foreach ($layer in $doc.layers) { $total += (Get-Item -LiteralPath (Save-Blob $layer.digest $token $keep)).Length }
-    Write-Host ("    Home Assistant {0}, {1} layers, {2:N0} MB" -f $version, @($doc.layers).Count, ($total / 1MB))
+    foreach ($layer in $doc.layers) { $total += (Get-Item -LiteralPath (Save-Blob $src $layer.digest $token $keep)).Length }
+    Write-Host ("    {0} {1}, {2} layers, {3:N0} MB" -f $src.Name, $version, @($doc.layers).Count, ($total / 1MB))
 
-    $ref = "$Registry/${ImageRepo}:$version"
+    $ref = "$($src.RefName):$version"
     $index = [ordered]@{
         schemaVersion = 2
         mediaType     = 'application/vnd.oci.image.index.v1+json'
@@ -309,19 +331,66 @@ function Sync-Image {
         })
     }
     $utf8 = New-Object Text.UTF8Encoding($false)
-    $indexPath = Join-Path $ImgRoot 'index.json'
-    $layoutPath = Join-Path $ImgRoot 'oci-layout'
+    $indexPath = Join-Path $src.Dir 'index.json'
+    $layoutPath = Join-Path $src.Dir 'oci-layout'
     [IO.File]::WriteAllText($indexPath, ($index | ConvertTo-Json -Depth 6), $utf8)
     [IO.File]::WriteAllText($layoutPath, '{"imageLayoutVersion":"1.0.0"}', $utf8)
     [void]$keep.Add($indexPath); [void]$keep.Add($layoutPath)
-    Remove-Unlisted $ImgRoot $keep
+    Remove-Unlisted $src.Dir $keep
     return @{ Ref = $ref; Version = $version; Digest = $digest }
+}
+#endregion
+
+#region LTSS and its wheels
+function Sync-Wheels {
+    # Wheels for requirements the Home Assistant image (Alpine, musl) does not ship.
+    # Pure-Python wheels if available, otherwise every CPython musllinux x86_64 build,
+    # so install.sh can pick the one matching the image's Python.
+    Write-Step "Wheels: $($Wheels -join ', ')"
+    $keep = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($spec in $Wheels) {
+        if ($spec -notmatch '^([A-Za-z0-9._-]+)==([A-Za-z0-9.+!-]+)$') { throw "Wheel must be pinned as name==version, got: $spec" }
+        $name = $matches[1]; $ver = $matches[2]
+        $files = (Invoke-RestMethod -UseBasicParsing "https://pypi.org/pypi/$name/$ver/json").urls |
+            Where-Object { $_.packagetype -eq 'bdist_wheel' }
+        $pick = @($files | Where-Object { $_.filename -match '-none-any\.whl$' })
+        if (-not $pick) { $pick = @($files | Where-Object { $_.filename -match '-cp3\d+-cp3\d+-musllinux_1_2_x86_64\.whl$' }) }
+        if (-not $pick) { throw "No pure-Python or musllinux x86_64 wheel for $spec" }
+        foreach ($f in $pick) {
+            $dest = Join-Path $WheelRoot $f.filename
+            if (Save-Url $f.url $dest $f.digests.sha256) { Write-Host "    + $($f.filename)" }
+            [void]$keep.Add($dest)
+        }
+    }
+    Remove-Unlisted $WheelRoot $keep
+}
+
+function Sync-Ltss {
+    Write-Step "LTSS $LtssVersion"
+    $keep = New-Object 'System.Collections.Generic.HashSet[string]'
+    $items = Invoke-RestMethod -UseBasicParsing "https://api.github.com/repos/freol35241/ltss/contents/custom_components/ltss?ref=$LtssVersion"
+    foreach ($item in $items) {
+        if ($item.type -ne 'file') { throw "Unexpected $($item.type) in LTSS: $($item.path)" }
+        $dest = Join-Path $LtssRoot $item.name
+        Save-Url $item.download_url $dest $null | Out-Null
+        [void]$keep.Add($dest)
+    }
+    $manifest = Get-Content -Raw -LiteralPath (Join-Path $LtssRoot 'manifest.json') | ConvertFrom-Json
+    Write-Host "    requirements: $($manifest.requirements -join ', ')"
+    Remove-Unlisted $LtssRoot $keep
 }
 #endregion
 
 New-Item -ItemType Directory -Force $Offline | Out-Null
 Sync-AptPackages
-$img = Sync-Image
+$ha = Sync-Image @{ Name = 'Home Assistant'; Host = 'ghcr.io'; Repo = 'home-assistant/home-assistant'
+                    RefName = 'ghcr.io/home-assistant/home-assistant'; Tag = $HaVersion
+                    Dir = Join-Path $Offline 'images\homeassistant'; VersionLabel = 'org.opencontainers.image.version' }
+$tsdb = Sync-Image @{ Name = 'TimescaleDB'; Host = 'registry-1.docker.io'; Repo = 'timescale/timescaledb'
+                      RefName = 'docker.io/timescale/timescaledb'; Tag = $TimescaleVersion
+                      Dir = Join-Path $Offline 'images\timescaledb' }
+Sync-Ltss
+Sync-Wheels
 
 $envFile = @(
     "# Generated by 1. download/download.ps1 - do not edit."
@@ -329,9 +398,14 @@ $envFile = @(
     "UBUNTU_SUITES=`"$($Pockets -join ' ')`""
     "UBUNTU_COMPONENTS=`"$($Components -join ' ')`""
     "APT_PACKAGES=`"$($Packages -join ' ')`""
-    "HA_IMAGE=$($img.Ref)"
-    "HA_VERSION=$($img.Version)"
-    "HA_MANIFEST_DIGEST=$($img.Digest)"
+    "HA_IMAGE=$($ha.Ref)"
+    "HA_VERSION=$($ha.Version)"
+    "HA_MANIFEST_DIGEST=$($ha.Digest)"
+    "TSDB_IMAGE=$($tsdb.Ref)"
+    "TSDB_VERSION=$($tsdb.Version)"
+    "TSDB_MANIFEST_DIGEST=$($tsdb.Digest)"
+    "LTSS_VERSION=$LtssVersion"
+    "LTSS_WHEELS=`"$($Wheels -join ' ')`""
 ) -join "`n"
 [IO.File]::WriteAllText((Join-Path $Offline 'bundle.env'), "$envFile`n", (New-Object Text.UTF8Encoding($false)))
-Write-Step "Done: offline bundle with Home Assistant $($img.Version) in $Offline"
+Write-Step "Done: offline bundle with Home Assistant $($ha.Version) and TimescaleDB $($tsdb.Version) in $Offline"
