@@ -15,6 +15,14 @@ never written by a deploy or rollback.
   martha-ha rollback [REV]       revert deploy REV (default: the most recent deploy)
   martha-ha rollback --to REV    put the tracked files back exactly as they were at REV
   martha-ha restore BACKUP       emergency: restore a full backup (the current config is kept aside)
+  martha-ha staging up [REV]     run staging HA with production + REV merged (default: production)
+  martha-ha staging test REV     check_config plus a staging boot of REV; exit 1 on errors
+  martha-ha staging down         stop staging HA (its own logins and data are kept)
+
+Staging is a second HA container on an internal Docker network (no LAN, no internet),
+reachable on the LAN at port 8124 through martha-staging-proxy. It has its own logins,
+.storage and database; only the tracked files come from production and the proposal, and
+secrets.yaml holds dummy values.
 
 Deploy and rollback never rewrite history: every change, including a rollback, is a new
 commit on 'main'. A failing health check after a deploy rolls back automatically.
@@ -47,6 +55,10 @@ WORK = STATE + "/work"
 LOCK = "/run/lock/martha-ha.lock"
 ENV_FILE = "/etc/martha/gate.env"
 HA_URL = "http://127.0.0.1:8123"
+STAGING = STATE + "/staging"
+STAGING_CONFIG = STAGING + "/config"
+STAGING_SERVICE = "homeassistant-staging"
+STAGING_URL = "http://172.30.53.10:8123"   # fixed address, see host/docker-compose.yml
 BRANCH = "main"
 
 MIN_FREE = 5 * 1024**3   # a deploy or backup aborts below this much free disk space
@@ -323,11 +335,11 @@ def restore(name):
 
 # --- Home Assistant -----------------------------------------------------------------
 
-def compose(action):
-    args = {"stop": ["stop", SERVICE], "start": ["up", "-d", SERVICE],
-            "restart": ["restart", SERVICE]}[action]
-    log(f"{action} Home Assistant")
-    run(["docker", "compose", "-f", COMPOSE, *args])
+def compose(action, service=SERVICE):
+    args = {"stop": ["stop", service], "start": ["up", "-d", service],
+            "restart": ["restart", service]}[action]
+    log(f"{action} {service}")
+    run(["docker", "compose", "-f", COMPOSE, "--profile", "staging", *args])
 
 
 def ha_api(method, path, token, timeout=10):
@@ -338,12 +350,12 @@ def ha_api(method, path, token, timeout=10):
         return resp.status
 
 
-def wait_healthy(since):
+def wait_healthy(since, url=HA_URL, service=SERVICE):
     """HA answers HTTP again and its log shows no configuration errors since 'since'."""
     deadline = time.time() + HEALTH_TIMEOUT
     while True:
         try:
-            with urllib.request.urlopen(HA_URL + "/manifest.json", timeout=5) as resp:
+            with urllib.request.urlopen(url + "/manifest.json", timeout=5) as resp:
                 if resp.status == 200:
                     break
         except (urllib.error.URLError, OSError):
@@ -353,11 +365,21 @@ def wait_healthy(since):
         time.sleep(5)
     time.sleep(SETTLE)
     since_iso = datetime.datetime.fromtimestamp(since, datetime.timezone.utc).isoformat()
-    res = run(["docker", "logs", "--since", since_iso, SERVICE], check=False)
+    res = run(["docker", "logs", "--since", since_iso, service], check=False)
     bad = [l for l in (res.stdout + res.stderr).splitlines() if any(p in l for p in FATAL_LOG)]
     if bad:
         return False, "configuration errors in the log:\n  " + "\n  ".join(bad[:10])
     return True, "ok"
+
+
+def extract(treeish, dest):
+    """Write the tracked files of 'treeish' (commit or tree) into 'dest'."""
+    archive = subprocess.Popen(["git", "--git-dir", GIT_DIR, "archive", treeish],
+                               stdout=subprocess.PIPE)
+    with tarfile.open(fileobj=archive.stdout, mode="r|") as tar:
+        tar.extractall(dest, filter="data")
+    if archive.wait() != 0:
+        raise Error(f"git archive {treeish} failed")
 
 
 def check(commit):
@@ -372,12 +394,7 @@ def check(commit):
             if path:
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(os.path.join(cfg, path))
-        archive = subprocess.Popen(["git", "--git-dir", GIT_DIR, "archive", commit],
-                                   stdout=subprocess.PIPE)
-        with tarfile.open(fileobj=archive.stdout, mode="r|") as tar:
-            tar.extractall(cfg, filter="data")
-        if archive.wait() != 0:
-            raise Error(f"git archive {commit} failed")
+        extract(commit, cfg)
         res = run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "python3",
                    "-v", f"{cfg}:/config", ha_image(),
                    "-m", "homeassistant", "--script", "check_config", "--config", "/config"],
@@ -456,10 +473,15 @@ def apply(build, message, verify=True, auto_rollback=True):
     raise Error(f"deploy rolled back: {why}")
 
 
-def deploy(ref, message=None):
+def resolve(ref):
     target = rev(ref)
     if not target:
         raise Error(f"unknown revision {ref}")
+    return target
+
+
+def deploy(ref, message=None):
+    target = resolve(ref)
     subject = git("log", "-1", "--format=%s", target).stdout.strip()
     message = "deploy: " + (message or subject)
     return apply(lambda base: merge_tree(base, target), message)
@@ -494,6 +516,76 @@ def rollback(ref=None, to=None):
                  f"revert: {subject} ({commit[:10]})")
 
 
+# --- staging --------------------------------------------------------------------------
+
+def dummy_secrets():
+    """secrets.yaml for staging: the keys of production, with harmless values of the same
+    kind, so the config loads without staging ever seeing a real secret."""
+    lines = ["# Generated by martha-ha: dummy values, staging never gets real secrets."]
+    with contextlib.suppress(FileNotFoundError):
+        with open(os.path.join(CONFIG, "secrets.yaml")) as f:
+            for line in f:
+                m = re.match(r"^([A-Za-z0-9_]+):\s*(.*?)\s*$", line)
+                if not m:
+                    continue
+                value = m.group(2)
+                if re.fullmatch(r"-?\d+", value):
+                    dummy = "0"
+                elif re.fullmatch(r"-?\d*\.\d+", value):
+                    dummy = "0.0"
+                elif value.lower() in ("true", "false", "yes", "no", "on", "off"):
+                    dummy = "false"
+                else:
+                    dummy = '"staging-dummy"'
+                lines.append(f"{m.group(1)}: {dummy}")
+    return "\n".join(lines) + "\n"
+
+
+def staging_files(tree):
+    """Refresh the tracked files in the staging config; everything else there (logins,
+    .storage, database, the Companion app registration) belongs to staging and stays."""
+    os.makedirs(STAGING_CONFIG, mode=0o755, exist_ok=True)
+    listing = os.path.join(STAGING, "tracked")
+    with contextlib.suppress(FileNotFoundError):
+        with open(listing) as f:
+            for path in f.read().splitlines():
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(os.path.join(STAGING_CONFIG, path))
+    extract(tree, STAGING_CONFIG)
+    with open(listing, "w") as f:
+        f.write(git("ls-tree", "-r", "--name-only", tree).stdout)
+    with open(os.path.join(STAGING_CONFIG, "secrets.yaml"), "w") as f:
+        f.write(dummy_secrets())
+
+
+def staging_up(ref=None):
+    """Run staging with production plus 'ref' merged in. Returns (ok, why, tree)."""
+    base = sync()
+    tree = merge_tree(base, resolve(ref)) if ref else tree_of(base)
+    with contextlib.suppress(Error):
+        compose("stop", STAGING_SERVICE)   # staging writes .storage on shutdown
+    staging_files(tree)
+    since = time.time()
+    compose("start", STAGING_SERVICE)
+    ok, why = wait_healthy(since, STAGING_URL, STAGING_SERVICE)
+    log(f"staging runs {ref or 'production'} ({tree[:10]}) on port 8124")
+    return ok, why, tree
+
+
+def staging_test(ref):
+    """check_config on production + ref, then boot it on staging and read the log."""
+    base = sync()
+    candidate = commit_tree(merge_tree(base, resolve(ref)), base, f"test: {ref}")
+    ok, out = check(candidate)
+    if not ok:
+        return False, "check_config failed:\n" + out
+    log("check_config passed")
+    ok, why, _ = staging_up(ref)
+    if not ok:
+        return False, "staging: " + why
+    return True, "check_config and staging boot passed"
+
+
 def status():
     if not rev(BRANCH):
         print("config repository not initialised (run 'martha-ha init')")
@@ -519,6 +611,8 @@ def main(argv=None):
     s = sub.add_parser("deploy"); s.add_argument("rev"); s.add_argument("-m", "--message")
     s = sub.add_parser("rollback"); s.add_argument("rev", nargs="?"); s.add_argument("--to")
     s = sub.add_parser("restore"); s.add_argument("backup")
+    s = sub.add_parser("staging")
+    s.add_argument("action", choices=["up", "test", "down"]); s.add_argument("rev", nargs="?")
     a = p.parse_args(argv)
 
     if os.geteuid() != 0:
@@ -544,6 +638,19 @@ def main(argv=None):
                 rollback(a.rev, a.to)
             elif a.cmd == "restore":
                 restore(a.backup)
+            elif a.cmd == "staging":
+                if a.action == "down":
+                    compose("stop", STAGING_SERVICE)
+                elif a.action == "up":
+                    ok, why, _ = staging_up(a.rev)
+                    log(f"staging health: {why}")
+                    return 0 if ok else 1
+                else:
+                    if not a.rev:
+                        raise Error("staging test needs a revision")
+                    ok, why = staging_test(a.rev)
+                    log(("PASSED: " if ok else "FAILED: ") + why)
+                    return 0 if ok else 1
     except Error as e:
         log(f"ERROR: {e}")
         return 1
