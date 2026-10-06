@@ -22,7 +22,8 @@ Er zijn twee installatieroutes:
 | `1. download/download.ps1` | Vult `offline/` met Docker-packages en het Home Assistant-image | Windows, **met** internet |
 | `2. usb/make-usb.ps1` | Zet de bundle (en voor route A `autoinstall.yaml`) op een USB-stick | Windows |
 | `2. ssh/install-ssh.ps1` | Route B over SSH: kopieert de bundle en draait `install.sh` op de server | Windows, LAN naar de server |
-| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service | Doel-pc |
+| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service, `martha-ha` | Doel-pc |
+| `agent/` | Optionele Hermes-agent: [voorbereiding (Telegram, API-key)](agent/README.md) | Doel-pc, **met** internet |
 | `offline/` | Gegenereerde bundle (signed apt-mirror en OCI-image) | Doel-pc |
 
 ## Stap 1: bundle verversen (optioneel, met internet)
@@ -244,6 +245,16 @@ Eenmalig instellen:
    `http://martha.local:8124`. Bovenin de app wissel je tussen Martha en Martha STAGING.
 
 Staging krijgt nooit echte geheimen: `secrets.yaml` bevat daar dummy-waarden.
+
+Wachtwoord van staging kwijt? Reset de eigen gegevens van staging (productie blijft
+ongemoeid) en doorloop de onboarding opnieuw:
+
+```bash
+sudo martha-ha staging down
+sudo mv /var/lib/martha/staging/config /var/lib/martha/staging/config.reset-$(date +%Y%m%d)
+sudo rm -f /var/lib/martha/staging/tracked
+sudo martha-ha staging up
+```
 
 `restore` zet een **hele** back-up terug, dus ook de database van dat moment. De
 huidige config-map blijft ernaast staan als `/opt/homeassistant/config.before-restore-<tijd>`;
