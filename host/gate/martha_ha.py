@@ -70,6 +70,8 @@ SETTLE = 30              # seconds to let integrations load before reading the l
 # gitignore syntax: ignore everything, then allow what may be versioned and changed.
 # Never tracked: secrets.yaml, *.db, logs, deps, custom_components (arbitrary code),
 # .storage/auth*, http*, core.config_entries (credentials), core.restore_state, ...
+# packages/martha_storage.yaml is managed by install.sh: it points the recorder and LTSS
+# at the production database, which staging and the agent must never get.
 ALLOWLIST = """\
 /*
 !/configuration.yaml
@@ -99,6 +101,7 @@ ALLOWLIST = """\
 !/.storage/core.area_registry
 !/.storage/core.floor_registry
 !/.storage/core.label_registry
+/packages/martha_storage.yaml
 secrets.yaml
 *.db
 *.db-*
@@ -395,8 +398,11 @@ def check(commit):
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(os.path.join(cfg, path))
         extract(commit, cfg)
+        # PYTHONPATH as in production: custom integrations (LTSS) import their requirements
+        # from the wheels install.sh put in pydeps.
         res = run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "python3",
-                   "-v", f"{cfg}:/config", ha_image(),
+                   "-v", f"{cfg}:/config", "-v", f"{HA_DIR}/pydeps:/pydeps:ro",
+                   "-e", "PYTHONPATH=/pydeps", ha_image(),
                    "-m", "homeassistant", "--script", "check_config", "--config", "/config"],
                   check=False)
     output = (res.stdout + res.stderr).strip()
