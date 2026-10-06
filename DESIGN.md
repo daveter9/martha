@@ -157,6 +157,19 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   Nooit getrackt: `secrets.yaml`, de database, `.storage/auth*`, `http*`,
   `core.config_entries` (credentials), `core.restore_state`, logs.
   Vóór elke deploy commit `martha-ha sync` de productiestaat, zodat wijzigingen via de UI nooit verloren gaan.
+  Ook `custom_components/` wordt niet getrackt: de agent kan zo geen code in productie zetten.
+- **`martha-ha`** (`host/gate/martha_ha.py`, Python-stdlib, door `install.sh` geïnstalleerd):
+  - Een deploy wordt één commit op `main`. git doet de merge met `merge-tree --write-tree`,
+    zonder werkkopie; een conflict met de productiestaat breekt af voordat er iets verandert.
+  - Bestanden schrijven gaat met `read-tree -u -m`, dus alleen de getrackte bestanden.
+    Hangt er `.storage` aan de wijziging, dan stopt HA eerst, omdat HA `.storage` bij het
+    afsluiten vanuit het geheugen overschrijft.
+  - `check_config` draait in een wegwerpcontainer (`--network none`) op een kopie. Dat
+    vangt niet alles: een ongeldige automation-trigger meldt HA pas bij het opstarten
+    ("has been disabled"). Daarom leest de health-check na de deploy de log, en volgt bij
+    zulke meldingen een automatische rollback (getest op martha, 2026-10-06).
+  - Back-ups zijn `tar.zst` (Python 3.14 `tarfile`), met SQLite-databases via de online
+    backup-API. Retentie: de nieuwste 30 en alles van de laatste 7 dagen; onder 5 GB vrij breekt hij af.
 - **Staging-HA:** hetzelfde image, naast productie, op een `internal` Docker-netwerk (geen LAN,
   geen internet), niet privileged, database in het geheugen, dummy-secrets. Op het LAN
   bereikbaar via `http://martha.local:8124` (TCP-forward door martha-gate), met een eigen

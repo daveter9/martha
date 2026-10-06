@@ -199,6 +199,33 @@ sudo usermod -aG docker $USER                           # optioneel: docker zond
 | `/opt/homeassistant/docker-compose.yml`, `.env` | Compose-project (image-versie, tijdzone) |
 | `/opt/martha` | Kopie van de bundle (alleen bij route A) |
 | `/var/lib/martha/installed` | `bundle.env` van de laatste installatie |
+| `/var/lib/martha/ha-config.git` | Versiegeschiedenis van de HA-configuratie (`martha-ha`) |
+| `/var/lib/martha/backups` | Volledige back-ups van de config-map, inclusief database |
+
+### Versies, back-ups en rollback (`martha-ha`)
+
+`install.sh` installeert `martha-ha`. Die houdt de HA-configuratie bij in git: alleen
+YAML-bestanden, dashboards, helpers en ruimtes. **Nooit** de database, `secrets.yaml`,
+logins of integratie-credentials. Een deploy of rollback schrijft alleen die getrackte
+bestanden, dus je historie en database blijven altijd staan.
+
+```bash
+sudo martha-ha status              # huidige versie, geschiedenis, laatste back-ups
+sudo martha-ha sync                # leg wijzigingen vast die je in de HA-UI hebt gedaan
+sudo martha-ha backup              # volledige back-up nu (ook de database, consistent)
+sudo martha-ha rollback            # draai de laatste deploy terug
+sudo martha-ha rollback --to <id>  # zet de config terug zoals hij bij versie <id> was
+sudo martha-ha restore <back-up>   # noodknop: hele back-up terug (zie hieronder)
+```
+
+Elke deploy doet eerst `check_config`, maakt een back-up, schrijft de bestanden en
+herstart of herlaadt HA. Staan er daarna configfouten in de log, dan draait hij zichzelf
+automatisch terug. Een rollback is altijd een nieuwe versie; er verdwijnt nooit iets uit
+de geschiedenis.
+
+`restore` zet een **hele** back-up terug, dus ook de database van dat moment. De
+huidige config-map blijft ernaast staan als `/opt/homeassistant/config.before-restore-<tijd>`;
+die ruim je zelf op als alles goed is.
 
 ## Updaten (offline, beide routes)
 
