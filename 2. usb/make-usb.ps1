@@ -19,7 +19,7 @@
 param(
     [Parameter(Mandatory)][string]$Drive,
     [string]$Hostname = 'martha',
-    [string]$Username = 'martha',
+    [string]$Username = 'david',
     # Public key(s) allowed to log in over SSH. Without a key, SSH password login is enabled.
     [string]$SshKeyFile,
     [string]$Timezone = 'Europe/Amsterdam',

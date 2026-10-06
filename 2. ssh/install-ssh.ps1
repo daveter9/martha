@@ -13,8 +13,8 @@
   (e.g. via make-usb.ps1 -SshKeyFile) only sudo asks.
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File ".\2. ssh\install-ssh.ps1" -Target martha@192.168.1.50
-  powershell -ExecutionPolicy Bypass -File ".\2. ssh\install-ssh.ps1" -Target martha@martha.local -IdentityFile $HOME\.ssh\id_ed25519
+  powershell -ExecutionPolicy Bypass -File ".\2. ssh\install-ssh.ps1" -Target david@192.168.1.50
+  powershell -ExecutionPolicy Bypass -File ".\2. ssh\install-ssh.ps1" -Target david@martha.local -IdentityFile $HOME\.ssh\id_ed25519
 #>
 [CmdletBinding()]
 param(

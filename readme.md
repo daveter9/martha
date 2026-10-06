@@ -79,7 +79,7 @@ Je hebt een USB-stick van minimaal 8 GB nodig. **Alles op de stick wordt gewist.
    | Parameter | Standaard | |
    |---|---|---|
    | `-Hostname` | `martha` | |
-   | `-Username` | `martha` | beheerder met sudo |
+   | `-Username` | `david` | beheerder met sudo |
    | `-SshKeyFile` | geen | bijvoorbeeld `$HOME\.ssh\id_ed25519.pub`; dan alleen SSH-login met een key |
    | `-Timezone` | `Europe/Amsterdam` | |
    | `-Keyboard` | `us` | bijvoorbeeld `nl` |
@@ -142,7 +142,7 @@ OpenSSH-server, en de gebruiker mag sudo. Op Windows gebruik je de ingebouwde
 OpenSSH-client (*Instellingen > Systeem > Optionele onderdelen > OpenSSH Client*).
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\2. ssh\install-ssh.ps1" -Target martha@192.168.1.50
+powershell -ExecutionPolicy Bypass -File ".\2. ssh\install-ssh.ps1" -Target david@martha.local
 ```
 
 Het script:
@@ -208,7 +208,7 @@ sudo usermod -aG docker $USER                           # optioneel: docker zond
    [B3 (USB)](#b3-installeren-via-usb-stick). Dat werkt ook voor een pc die met route A is geïnstalleerd.
 
 Tip voor route A: de first-boot-installatie volg je ook over SSH met
-`ssh martha@<ip> journalctl -fu martha-firstboot.service`.
+`ssh david@martha.local journalctl -fu martha-firstboot.service`.
 
 `install.sh` werkt Docker bij naar de versie in de bundle, laadt het nieuwe image en
 maakt de container opnieuw aan met dezelfde `config`-map.
