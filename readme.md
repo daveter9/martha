@@ -1,7 +1,8 @@
 # Martha
 Martha installeren en configureren: een pc met Ubuntu Server 26.04 waarop Home Assistant
 in een Docker-container draait. De installatie werkt **volledig offline**. Alles wat de
-doel-pc nodig heeft staat in deze repo.
+doel-pc nodig heeft staat in deze repo. Komt er later internet bij, dan mag Home Assistant
+dat gebruiken; zonder internet blijft hij werken, alleen cloud-integraties niet.
 
 - Design constraints en architectuurbeslissingen staan in [DESIGN.md](DESIGN.md).
 - Werkafspraken voor Claude staan in [CLAUDE.md](CLAUDE.md).

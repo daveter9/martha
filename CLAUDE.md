@@ -10,4 +10,6 @@
   testen, ook niet read-only of als simulatie. Verifieer met wat native op Windows
   draait (PowerShell, `bash -n` in Git Bash). Vraag het eerst als je een andere
   Linux-omgeving wilt gebruiken.
-- **Offline is een harde eis.** Alles wat op de doel-pc draait mag geen netwerk nodig hebben (zie DESIGN.md).
+- **Offline installeren is een harde eis.** Installeren en updaten op de doel-pc mag geen
+  netwerk nodig hebben. Home Assistant mag in gebruik wel internet gebruiken, maar moet
+  ook zonder internet werken (zie C1 en C1a in DESIGN.md).
