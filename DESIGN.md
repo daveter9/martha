@@ -15,7 +15,7 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C3 | **De voorbereidingsmachine is Windows, zonder Docker.** | `download.ps1` en `make-usb.ps1` zijn PowerShell 5.1. Het image wordt zonder Docker van de registry gehaald (registry-API, dan een OCI layout). apt-dependencies worden in PowerShell opgelost. |
 | C4 | **Doel-OS is Ubuntu Server 26.04, amd64.** | De bundle is gekoppeld aan suite `resolute`; `install.sh` weigert een andere release. |
 | C5 | **Twee installatieroutes**: (A) autoinstall vanaf USB, (B) `install.sh` op een bestaande, lege server-installatie. | Eén `install.sh` voor beide routes. Route A roept hem aan via een first-boot-service. |
-| C6 | **Alleen de Home Assistant-container.** | Geen MQTT/Zigbee2MQTT enzovoort. Later toe te voegen in `host/docker-compose.yml` en `download.ps1`. |
+| C6 | **Alleen de containers Home Assistant en TimescaleDB.** | TimescaleDB is sinds ADR-001 de opslag van Recorder en LTSS. Geen MQTT/Zigbee2MQTT enzovoort. Later toe te voegen in `host/docker-compose.yml` en `download.ps1`. |
 | C7 | Rufus-stick in **ISO-mode, FAT32**. | Stick blijft beschrijfbaar voor `autoinstall.yaml` en de bundle. Geen bestand mag groter zijn dan 4 GB (grootste is nu ~1,3 GB `casper/*.squashfs`). |
 | C8 | **Paden van de bundle zonder spaties** op de doel-pc. | Een apt `file:`-URI met spaties werkt niet. `install.sh` controleert dit. |
 | C9 | Git-host is **GitHub** (`daveter9/martha`). **GitHub LFS staat max. 2 GB per bestand toe** (Free/Pro). | De ISO (2,8 GB) staat in delen van 1,5 GB in LFS (`*.iso.001`, `.002`) plus `*.iso.sha256` (officiële Ubuntu-checksum, geverifieerd op 2026-10-05). `0. install os/iso.ps1 -Join` zet hem weer in elkaar en controleert de hash; de `.iso` zelf is gitignored. |
@@ -28,7 +28,9 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C16 | De agent heeft **nooit schrijfrechten op productie-HA**. | Geen productie-token, geen Docker-socket, geen host-shell in de sandbox. Alleen martha-gate (door ons geschreven) wijzigt productie. |
 | C17 | Een wijziging gaat pas live na een **geslaagde test op staging en goedkeuring in de HA Companion-app**. | De goedkeuring loopt via productie-HA met een eenmalige nonce die de agent nooit ziet. Ook een rollback-verzoek van de agent vraagt goedkeuring. |
 | C18 | Deploy en rollback raken **de database en niet-getrackte bestanden nooit**. | Alleen bestanden op de allowlist van de config-repo worden geschreven. Rollback is een revert-commit; de git-historie wordt nooit herschreven. |
-| C19 | **Vóór elke deploy een volledige back-up**, en niets verdwijnt zonder retentiebeleid. | `martha-ha backup` maakt een consistente kopie van de hele config-map, inclusief database. Te weinig vrije schijf breekt de deploy af. |
+| C19 | **Vóór elke deploy een volledige back-up**, en niets verdwijnt zonder retentiebeleid. | `martha-ha backup` maakt een consistente kopie van de hele config-map plus een `pg_dump` van de database (die staat sinds ADR-001 in PostgreSQL, niet meer in de config-map). Te weinig vrije schijf breekt de deploy af. |
+| C20 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
+| C21 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
 
 ## Architectuurbeslissingen
 
@@ -69,6 +71,9 @@ op echte hardware.
 geheel wordt opgeslagen als OCI image layout (map, geen tar), zodat blobs die over
 versies heen gelijk blijven niet dubbel in LFS komen. `install.sh` laadt het met
 `tar | docker load`. Compose heeft `pull_policy: never`.
+Het TimescaleDB-image (Docker Hub) gaat op dezelfde manier, naar `offline/images/timescaledb`,
+met een vaste tag (`-TimescaleVersion`). Het token wordt per registry opgehaald via de
+standaard `WWW-Authenticate`-challenge.
 
 ### Home Assistant-container
 `network_mode: host` (nodig voor discovery: mDNS, SSDP en DHCP), `privileged: true`
@@ -127,6 +132,58 @@ Een nieuwe bundle (`download.ps1`) plus `install.sh` op de doel-pc. Dat is idemp
 compose maakt de container opnieuw aan. **Niet** inbegrepen: offline security-updates
 van het hele OS. Dat zou een volledigere mirror vragen en is een open punt.
 
+### Opslag van meetdata (ADR-001)
+Besluit en afwegingen: [docs/adr/ADR-001-opslag-energie-en-sensordata.md](docs/adr/ADR-001-opslag-energie-en-sensordata.md).
+HA leest en stuurt alle apparaten via zijn integraties. Recorder en LTSS schrijven naar
+één PostgreSQL-server met TimescaleDB.
+
+- **Container `timescaledb`:** image `timescale/timescaledb:<versie>-pg18` (Alpine, met de
+  Timescale-licentie voor compressie en continuous aggregates; de `-ha`-variant met PostGIS
+  is onnodig groot). Database en gebruiker `homeassistant`. Alleen op `127.0.0.1:5432`;
+  analyses vanaf een andere pc gaan via een SSH-tunnel
+  (`ssh -L 5432:127.0.0.1:5432 david@martha.local`). Data in `/opt/homeassistant/postgres`
+  (de ouder van `PGDATA`, zoals PostgreSQL 18 aanraadt), op de SSD van martha.
+  Telemetrie staat uit, `timescaledb-tune` krijgt 1 GB RAM.
+- **Wachtwoord:** één keer gegenereerd door `install.sh`, in `/opt/homeassistant/db.env`
+  (0600, voor de container) en als `martha_db_url` in `secrets.yaml` (voor HA).
+- **HA-config:** `packages/martha_storage.yaml` (Recorder en LTSS). `install.sh` zet hem
+  alleen neer als hij ontbreekt, zodat eigen wijzigingen (de include-lijst) blijven staan.
+  `configuration.yaml` krijgt `homeassistant: packages: !include_dir_named packages`. Bij een
+  verse installatie schrijft `install.sh` HA's standaard-`configuration.yaml` zelf, zodat HA
+  vanaf de eerste start PostgreSQL gebruikt.
+- **LTSS** (v2.1.1) staat in de bundle, niet via HACS (C1). Zijn requirements `psycopg2-binary`
+  en `geoalchemy2` zitten niet in het HA-image (dat heeft wel `psycopg2` en `sqlalchemy`) en
+  komen als wheels mee (C20). `download.ps1` haalt van `psycopg2-binary` de musllinux-wheels
+  voor alle CPython-versies; `uv` kiest de wheel die past bij de Python van het image. Die map
+  wordt bij elke `install.sh` opnieuw opgebouwd, dus een HA-update met een nieuwere Python werkt
+  zolang de wheel voor die versie in de bundle zit. *Gevolg:* via `PYTHONPATH` overschaduwt
+  `psycopg2-binary` de `psycopg2` uit het image, ook voor de Recorder. Het is dezelfde
+  bibliotheek, met een eigen libpq.
+- **Schema** (`host/db/timescale.sql`, idempotent, bij elke `install.sh`):
+  - `ltss`: hypertable met chunks van een dag, zelf aangemaakt met precies de kolommen en
+    indexnamen van LTSS, zodat de aggregates al bestaan voordat LTSS verbindt. Compressie na
+    7 dagen, retentie 30 dagen. Een trigger haalt alleen-UI-attributen weg (`icon`,
+    `entity_picture`, `options` enz.), omdat LTSS geen `ignore_attributes` kent.
+  - `ltss_1m` (2 jaar, compressie na 30 dagen) en `ltss_1h` (onbeperkt, gebouwd op
+    `ltss_1m`): alleen numerieke states, met `value_avg`, `value_min`, `value_max`,
+    `value_last`, `samples`, `state_class` en `unit`. Tellers gebruiken `value_last`,
+    momentane waarden `value_avg`. Het gemiddelde is per sample, niet tijdgewogen.
+  - Policies gebruiken `if_not_exists`: een ander interval in het script verandert een
+    bestaande policy niet. Een andere aggregate-query vraagt drop en opnieuw aanmaken.
+- **Granulariteit:** throttlen gebeurt bij de bron (opties van de integratie, zoals het
+  DSMR-update-interval). Filteren gebeurt met de include/exclude-lijst van LTSS. De Recorder
+  blijft ongefilterd, want het energiedashboard heeft zijn statistieken nodig.
+- **Gaten:** HA schrijft alleen bij een wijziging, dus vul gaten met de vorige waarde:
+
+  ```sql
+  SELECT time_bucket_gapfill('1 minute', bucket) AS t,
+         locf(last(value_avg, bucket)) AS watt
+  FROM ltss_1m
+  WHERE entity_id = 'sensor.power_consumption'
+    AND bucket > now() - INTERVAL '1 day' AND bucket < now()
+  GROUP BY t ORDER BY t;
+  ```
+
 ### Agent (Hermes): HA configureren zonder schrijfrechten op productie
 Doel: een Hermes-agent (Nous Research) die HA echt configureert (automations, scripts,
 helpers, dashboards, packages), via Telegram met de gebruiker praat en zelf verbetertips stuurt.
@@ -163,9 +220,17 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   login, zodat de gebruiker in de Companion-app tussen staging en productie kan wisselen.
   Staging bewijst dat de config laadt; echte apparaten testen kan alleen in productie, en
   daarvoor is er de rollback.
+  *Let op (ADR-001):* `packages/martha_storage.yaml` zit in de config-repo en wijst naar
+  PostgreSQL. Staging moet `martha_db_url` daarom met een dummy-secret naar een database
+  laten wijzen die hij mag gebruiken (bijvoorbeeld SQLite in het geheugen voor de Recorder),
+  en mag nooit de productiedatabase bereiken.
 - **Nieuwe integraties** (config flows met credentials) vallen buiten de agent: die stelt hij
   voor en legt hij uit, de gebruiker voegt ze toe in de UI.
 
 ## Open punten
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
+- Back-up van PostgreSQL (`pg_dump`) bestaat nog niet; hoort bij `martha-ha backup` (C19).
+- LTSS is een community-integratie zonder onderhoudsgarantie (laatste release 2024-12).
+  Terugvaloptie volgens ADR-001: `mqtt_statestream` → Telegraf → Timescale.
+- De database-opzet is nog niet op martha getest (alleen `bash -n` en het ophalen van de bundle).

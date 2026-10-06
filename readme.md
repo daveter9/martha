@@ -19,11 +19,12 @@ Er zijn twee installatieroutes:
 | Map | Wat | Waar draait het |
 |---|---|---|
 | `0. install os/` | Ubuntu Server 26.04 ISO (in delen, samenvoegen met `iso.ps1 -Join`) en Rufus | Windows |
-| `1. download/download.ps1` | Vult `offline/` met Docker-packages en het Home Assistant-image | Windows, **met** internet |
+| `1. download/download.ps1` | Vult `offline/` met Docker-packages, de images van Home Assistant en TimescaleDB, en LTSS met zijn wheels | Windows, **met** internet |
 | `2. usb/make-usb.ps1` | Zet de bundle (en voor route A `autoinstall.yaml`) op een USB-stick | Windows |
 | `2. ssh/install-ssh.ps1` | Route B over SSH: kopieert de bundle en draait `install.sh` op de server | Windows, LAN naar de server |
-| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service | Doel-pc |
-| `offline/` | Gegenereerde bundle (signed apt-mirror en OCI-image) | Doel-pc |
+| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service, databaseschema (`db/`) en HA-package (`ha/`) | Doel-pc |
+| `offline/` | Gegenereerde bundle (signed apt-mirror, OCI-images, LTSS, wheels) | Doel-pc |
+| `docs/adr/` | Architectuurbeslissingen (ADR's) | - |
 
 ## Stap 1: bundle verversen (optioneel, met internet)
 
@@ -146,7 +147,7 @@ powershell -ExecutionPolicy Bypass -File ".\2. ssh\install-ssh.ps1" -Target davi
 ```
 
 Het script:
-1. controleert over SSH dat de server Ubuntu 26.04 amd64 is (voordat er ~750 MB gekopieerd wordt);
+1. controleert over SSH dat de server Ubuntu 26.04 amd64 is (voordat er ~1,1 GB gekopieerd wordt);
 2. kopieert `host\` en `offline\` met `scp` naar `~/martha-bundle` op de server;
 3. draait daar `sudo bash ~/martha-bundle/host/install.sh` in een interactieve sessie (sudo vraagt om je wachtwoord);
 4. ruimt `~/martha-bundle` op (houd hem met `-KeepBundle`).
@@ -187,8 +188,9 @@ Open `http://martha.local:8123` in een browser en doorloop de onboarding van Hom
 het IP-adres: `http://<ip-van-de-pc>:8123`.
 
 ```bash
-sudo docker ps                                          # draait de container 'homeassistant'?
+sudo docker ps                                          # draaien de containers 'homeassistant' en 'timescaledb'?
 sudo docker logs -f homeassistant                       # logs van Home Assistant
+sudo docker exec -it timescaledb psql -U homeassistant   # SQL op de database (Recorder en LTSS)
 sudo docker compose -f /opt/homeassistant/docker-compose.yml restart
 sudo usermod -aG docker $USER                           # optioneel: docker zonder sudo (opnieuw inloggen)
 ```
@@ -196,14 +198,18 @@ sudo usermod -aG docker $USER                           # optioneel: docker zond
 | Pad | Inhoud |
 |---|---|
 | `/opt/homeassistant/config` | Home Assistant-configuratie: **dit is wat je back-upt** |
-| `/opt/homeassistant/docker-compose.yml`, `.env` | Compose-project (image-versie, tijdzone) |
+| `/opt/homeassistant/docker-compose.yml`, `.env` | Compose-project (image-versies, tijdzone) |
+| `/opt/homeassistant/postgres` | PostgreSQL/TimescaleDB-data (Recorder en LTSS): **ook back-uppen**, met `pg_dump` |
+| `/opt/homeassistant/db.env` | Databasewachtwoord (ook als `martha_db_url` in `config/secrets.yaml`) |
+| `/opt/homeassistant/pydeps` | Python-pakketten voor LTSS, door `install.sh` uit de wheels gebouwd |
 | `/opt/martha` | Kopie van de bundle (alleen bij route A) |
 | `/var/lib/martha/installed` | `bundle.env` van de laatste installatie |
 
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).
-2. Maak een back-up van `/opt/homeassistant/config`.
+2. Maak een back-up van `/opt/homeassistant/config` en van de database:
+   `sudo docker exec timescaledb pg_dump -U homeassistant -Fc homeassistant > ha-db.dump`.
 3. Installeer opnieuw zoals in [B2 (SSH)](#b2-installeren-via-ssh-vanaf-windows) of
    [B3 (USB)](#b3-installeren-via-usb-stick). Dat werkt ook voor een pc die met route A is geïnstalleerd.
 

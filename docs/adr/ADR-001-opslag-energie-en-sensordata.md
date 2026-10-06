@@ -81,3 +81,15 @@ apparaten, en TimescaleDB is de opslag voor de lange termijn.
 - Of de Growatt via een HA-Modbus-integratie of via Grott wordt uitgelezen, gezien de
   RS485-poort mogelijk door de ShineLink bezet is.
 
+## Uitwerking (6 okt 2026)
+Bij de implementatie zijn twee punten aangepast aan de offline-eis (C1/C1a in
+[DESIGN.md](../../DESIGN.md)):
+
+- **LTSS niet via HACS.** HACS heeft internet nodig. LTSS (v2.1.1) staat daarom in de
+  bundle (`offline/custom_components/ltss`), en `install.sh` kopieert hem naar de
+  HA-config. De Python-pakketten die LTSS vraagt en die niet in het HA-image zitten
+  (`psycopg2-binary`, `geoalchemy2`), staan als wheels in de bundle (`offline/wheels`).
+- **`ignore_attributes`** kent LTSS niet. Overbodige attributen worden daarom in de
+  database weggefilterd, met een trigger op de tabel `ltss`.
+
+De details staan in DESIGN.md onder *Opslag van meetdata (ADR-001)*.
