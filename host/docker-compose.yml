@@ -54,3 +54,31 @@ services:
       interval: 5s
       timeout: 5s
       retries: 60
+
+  # Staging: a second HA to test configuration changes before they reach production
+  # (managed by 'martha-ha staging'). Same image, but no LAN, no internet, no devices,
+  # not privileged. Its own logins/.storage/database live in /var/lib/martha/staging.
+  # The LAN reaches it on port 8124 through martha-staging-proxy.service.
+  homeassistant-staging:
+    container_name: homeassistant-staging
+    profiles: [staging]
+    image: ${HA_IMAGE:?set in .env}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - /var/lib/martha/staging/config:/config
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      staging:
+        ipv4_address: 172.30.53.10
+
+networks:
+  staging:
+    name: martha-staging
+    # No route out: staging can never switch a real device or reach the internet.
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.53.0/24

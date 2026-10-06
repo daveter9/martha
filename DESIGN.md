@@ -218,16 +218,40 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   Nooit getrackt: `secrets.yaml`, de database, `.storage/auth*`, `http*`,
   `core.config_entries` (credentials), `core.restore_state`, logs.
   Vóór elke deploy commit `martha-ha sync` de productiestaat, zodat wijzigingen via de UI nooit verloren gaan.
+  Ook `custom_components/` wordt niet getrackt: de agent kan zo geen code in productie zetten.
+- **`martha-ha`** (`host/gate/martha_ha.py`, Python-stdlib, door `install.sh` geïnstalleerd):
+  - Een deploy wordt één commit op `main`. git doet de merge met `merge-tree --write-tree`,
+    zonder werkkopie; een conflict met de productiestaat breekt af voordat er iets verandert.
+  - Bestanden schrijven gaat met `read-tree -u -m`, dus alleen de getrackte bestanden.
+    Hangt er `.storage` aan de wijziging, dan stopt HA eerst, omdat HA `.storage` bij het
+    afsluiten vanuit het geheugen overschrijft.
+  - `check_config` draait in een wegwerpcontainer (`--network none`) op een kopie. Dat
+    vangt niet alles: een ongeldige automation-trigger meldt HA pas bij het opstarten
+    ("has been disabled"). Daarom leest de health-check na de deploy de log, en volgt bij
+    zulke meldingen een automatische rollback (getest op martha, 2026-10-06).
+  - Back-ups zijn `tar.zst` (Python 3.14 `tarfile`), met SQLite-databases via de online
+    backup-API. Retentie: de nieuwste 30 en alles van de laatste 7 dagen; onder 5 GB vrij breekt hij af.
 - **Staging-HA:** hetzelfde image, naast productie, op een `internal` Docker-netwerk (geen LAN,
   geen internet), niet privileged, database in het geheugen, dummy-secrets. Op het LAN
   bereikbaar via `http://martha.local:8124` (TCP-forward door martha-gate), met een eigen
   login, zodat de gebruiker in de Companion-app tussen staging en productie kan wisselen.
   Staging bewijst dat de config laadt; echte apparaten testen kan alleen in productie, en
   daarvoor is er de rollback.
-  *Let op (ADR-001):* `packages/martha_storage.yaml` zit in de config-repo en wijst naar
-  PostgreSQL. Staging moet `martha_db_url` daarom met een dummy-secret naar een database
-  laten wijzen die hij mag gebruiken (bijvoorbeeld SQLite in het geheugen voor de Recorder),
-  en mag nooit de productiedatabase bereiken.
+  - Vast adres `172.30.53.10` op netwerk `martha-staging` (`172.30.53.0/24`, `internal`).
+    Een internal netwerk kan geen poort publiceren, maar de host bereikt de container wel.
+    `martha-staging-proxy.service` (DynamicUser, geen Docker-toegang) forwardt daarom LAN-poort
+    8124 naar staging. Getest op martha (2026-10-06): de host bereikt staging; staging bereikt
+    de router, het internet en productie-HA niet.
+  - Staging krijgt geen registries of `config_entries` van productie, alleen de getrackte
+    bestanden. Daarmee zijn er ook geen credentials in staging. Entities uit productie bestaan
+    in staging dus niet; dashboards tonen ze als "niet beschikbaar".
+  - `martha-ha staging test` = `check_config` plus staging opstarten met de logcontrole van de
+    health-check. Een ongeldige automation-trigger wordt zo vóór productie afgekeurd.
+  - `packages/martha_storage.yaml` (ADR-001) staat **niet** in de config-repo (uitgezonderd in
+    de allowlist): hij wijst naar de productiedatabase en laadt LTSS, en dat blijft van
+    `install.sh`. Staging en de agent krijgen hem dus nooit; staging houdt zijn eigen
+    Recorder-database. `check_config` krijgt `/opt/homeassistant/pydeps` mee, zodat LTSS
+    (in de kopie van productie) te importeren is.
 - **Nieuwe integraties** (config flows met credentials) vallen buiten de agent: die stelt hij
   voor en legt hij uit, de gebruiker voegt ze toe in de UI.
 

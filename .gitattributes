@@ -11,6 +11,7 @@ offline/images/**/blobs/** filter=lfs diff=lfs merge=lfs -text
 *.yml      text eol=lf
 *.yaml     text eol=lf
 *.sql      text eol=lf
+*.py       text eol=lf
 offline/bundle.env text eol=lf
 offline/custom_components/** text eol=lf
 offline/apt/dists/** -text

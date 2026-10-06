@@ -24,7 +24,8 @@ Er zijn twee installatieroutes:
 | `1. download/download.ps1` | Vult `offline/` met Docker-packages, de images van Home Assistant en TimescaleDB, en LTSS met zijn wheels | Windows, **met** internet |
 | `2. usb/make-usb.ps1` | Zet de bundle (en voor route A `autoinstall.yaml`) op een USB-stick | Windows |
 | `2. ssh/install-ssh.ps1` | Route B over SSH: kopieert de bundle en draait `install.sh` op de server | Windows, LAN naar de server |
-| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service, databaseschema (`db/`) en HA-package (`ha/`) | Doel-pc |
+| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service, `martha-ha` (`gate/`), databaseschema (`db/`) en HA-package (`ha/`) | Doel-pc |
+| `agent/` | Optionele Hermes-agent: [voorbereiding (Telegram, API-key)](agent/README.md) | Doel-pc, **met** internet |
 | `offline/` | Gegenereerde bundle (signed apt-mirror, OCI-images, LTSS, wheels) | Doel-pc |
 | `docs/adr/` | Architectuurbeslissingen (ADR's) | - |
 
@@ -206,6 +207,65 @@ sudo usermod -aG docker $USER                           # optioneel: docker zond
 | `/opt/homeassistant/pydeps` | Python-pakketten voor LTSS, door `install.sh` uit de wheels gebouwd |
 | `/opt/martha` | Kopie van de bundle (alleen bij route A) |
 | `/var/lib/martha/installed` | `bundle.env` van de laatste installatie |
+| `/var/lib/martha/ha-config.git` | Versiegeschiedenis van de HA-configuratie (`martha-ha`) |
+| `/var/lib/martha/backups` | Volledige back-ups van de config-map, inclusief database |
+
+### Versies, back-ups en rollback (`martha-ha`)
+
+`install.sh` installeert `martha-ha`. Die houdt de HA-configuratie bij in git: alleen
+YAML-bestanden, dashboards, helpers en ruimtes. **Nooit** de database, `secrets.yaml`,
+logins of integratie-credentials. Een deploy of rollback schrijft alleen die getrackte
+bestanden, dus je historie en database blijven altijd staan.
+
+```bash
+sudo martha-ha status              # huidige versie, geschiedenis, laatste back-ups
+sudo martha-ha sync                # leg wijzigingen vast die je in de HA-UI hebt gedaan
+sudo martha-ha backup              # volledige back-up nu (ook de database, consistent)
+sudo martha-ha rollback            # draai de laatste deploy terug
+sudo martha-ha rollback --to <id>  # zet de config terug zoals hij bij versie <id> was
+sudo martha-ha restore <back-up>   # noodknop: hele back-up terug (zie hieronder)
+```
+
+Elke deploy doet eerst `check_config`, maakt een back-up, schrijft de bestanden en
+herstart of herlaadt HA. Staan er daarna configfouten in de log, dan draait hij zichzelf
+automatisch terug. Een rollback is altijd een nieuwe versie; er verdwijnt nooit iets uit
+de geschiedenis.
+
+### Staging: wijzigingen eerst uitproberen
+
+Naast productie (poort 8123) kan een tweede Home Assistant draaien: **staging**, op
+`http://martha.local:8124`. Staging zit op een afgesloten Docker-netwerk: hij kan geen
+apparaten schakelen en heeft geen internet. Je ziet er de automations, scripts, helpers en
+dashboards van een voorstel; apparaten staan er op "niet beschikbaar".
+
+```bash
+sudo martha-ha staging up              # staging met de huidige productieconfig
+sudo martha-ha staging test <voorstel> # check_config + staging opstarten; faalt bij configfouten
+sudo martha-ha staging down            # staging stoppen (logins en instellingen blijven bewaard)
+```
+
+Eenmalig instellen:
+1. Open `http://martha.local:8124` en doorloop de onboarding. Noem hem **Martha STAGING** en
+   gebruik gerust dezelfde gebruikersnaam; staging heeft eigen logins. Doe dit meteen: tot
+   dan kan iedereen op je netwerk die account aanmaken.
+2. In de Companion-app: *Instellingen → Companion-app → Servers → Server toevoegen*, met
+   `http://martha.local:8124`. Bovenin de app wissel je tussen Martha en Martha STAGING.
+
+Staging krijgt nooit echte geheimen: `secrets.yaml` bevat daar dummy-waarden.
+
+Wachtwoord van staging kwijt? Reset de eigen gegevens van staging (productie blijft
+ongemoeid) en doorloop de onboarding opnieuw:
+
+```bash
+sudo martha-ha staging down
+sudo mv /var/lib/martha/staging/config /var/lib/martha/staging/config.reset-$(date +%Y%m%d)
+sudo rm -f /var/lib/martha/staging/tracked
+sudo martha-ha staging up
+```
+
+`restore` zet een **hele** back-up terug, dus ook de database van dat moment. De
+huidige config-map blijft ernaast staan als `/opt/homeassistant/config.before-restore-<tijd>`;
+die ruim je zelf op als alles goed is.
 
 ## Updaten (offline, beide routes)
 

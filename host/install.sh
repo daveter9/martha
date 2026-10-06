@@ -272,6 +272,23 @@ done
     log "WARNING: no recorder tables in PostgreSQL yet; check: docker logs homeassistant"
 
 install -d -m 0755 "$STATE_DIR"
+
+# --- 7. Config versioning, backups and rollback (martha-ha) -----------------------
+install -d -m 0755 /usr/local/lib/martha
+install -m 0755 "$ROOT/host/gate/martha_ha.py" /usr/local/lib/martha/martha_ha.py
+ln -sf /usr/local/lib/martha/martha_ha.py /usr/local/sbin/martha-ha
+# Staging HA (started on demand by 'martha-ha staging') and its LAN forward on port 8124.
+install -m 0644 "$ROOT/host/gate/staging_proxy.py" /usr/local/lib/martha/staging_proxy.py
+install -m 0644 "$ROOT/host/martha-staging-proxy.service" /etc/systemd/system/martha-staging-proxy.service
+install -d -m 0755 "$STATE_DIR/staging"
+systemctl daemon-reload
+systemctl enable martha-staging-proxy.service
+systemctl restart martha-staging-proxy.service
+# HA creates its default configuration on first start; whatever exists now is committed,
+# the rest is picked up by the next 'martha-ha sync'.
+for _ in $(seq 60); do [ -f "$HA_DIR/config/configuration.yaml" ] && break; sleep 2; done
+martha-ha init || log "WARNING: martha-ha init failed; run 'sudo martha-ha init' later"
+
 cp "$OFFLINE/bundle.env" "$STATE_DIR/installed"
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
