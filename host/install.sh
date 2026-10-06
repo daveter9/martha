@@ -27,6 +27,39 @@ case "$OFFLINE" in *[[:space:]]*) die "bundle path must not contain spaces: $OFF
 
 log "bundle created $BUNDLE_CREATED, Home Assistant $HA_VERSION"
 
+# --- 0. Wired network fallback ------------------------------------------------
+# The PC is usually installed without a network. If netplan has no ethernet config
+# at all (e.g. a manual install with "Continue without network"), add DHCP on every
+# wired port, so a cable plugged in later just works. Existing config is left alone.
+NETPLAN_LAN=/etc/netplan/90-martha-lan.yaml
+if command -v netplan >/dev/null 2>&1; then
+    ethernets="$(netplan get ethernets 2>/dev/null || true)"
+    case "$ethernets" in
+    "" | null | "{}")
+        log "no wired network configured, adding DHCP on all ethernet ports ($NETPLAN_LAN)"
+        (
+            umask 077
+            cat >"$NETPLAN_LAN" <<'EOF'
+# Added by Martha install.sh: DHCP on every wired port, also when no cable was
+# connected during installation.
+network:
+  version: 2
+  ethernets:
+    martha-lan:
+      match:
+        name: "e*"
+      dhcp4: true
+      # Don't block boot waiting for a network that may not be there.
+      optional: true
+EOF
+        )
+        # Takes effect now if possible, otherwise at the next boot.
+        { netplan generate && networkctl reload; } >/dev/null 2>&1 ||
+            log "WARNING: could not activate $NETPLAN_LAN now; it is used after a reboot"
+        ;;
+    esac
+fi
+
 # --- 1. Docker from the local (signed) partial mirror ------------------------
 # apt runs with its own sources, lists and cache in a temp dir, so the system's
 # apt configuration is left untouched. apt verifies InRelease against the Ubuntu

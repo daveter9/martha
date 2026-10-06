@@ -72,6 +72,8 @@ bevestiging** voordat er een schijf gewist wordt: een vangnet tegen een stick di
 ongeluk in de verkeerde pc zit. Verder:
 - LVM over de hele grootste schijf (`sizing-policy: all`).
 - DHCP op elke `e*`-netwerkkaart, `optional: true`, zodat booten zonder netwerk niet blijft wachten.
+  Subiquity schrijft deze `match`-config letterlijk naar de netplan van het doelsysteem, dus ook
+  een kabel die pas later wordt ingestoken krijgt via DHCP een adres.
 - `apt.fallback: offline-install`, en geen geoip, codecs, drivers of installer-refresh.
 - OpenSSH-server (zit in de ISO-pool). Met een SSH-key geldt key-only login, anders een wachtwoord.
 - Wachtwoord als SHA-512 crypt-hash (`openssl` uit Git for Windows). Het wachtwoord zelf komt niet op de stick.
@@ -92,6 +94,14 @@ Dezelfde `install.sh`, op twee manieren bij de server gebracht. Vereisten: Ubunt
   sudo om een wachtwoord kan vragen. Daarna ruimt het de bundle op, want het image zit dan al in Docker.
   Remote commando's bevatten geen dubbele quotes: Windows PowerShell 5.1 verminkt die bij het aanroepen van native programma's.
 - **Via USB** (`make-usb.ps1 -BundleOnly`), daarna handmatig mounten en `install.sh` starten.
+
+### Bekabeld netwerk achteraf
+Internet of LAN kan later bijkomen. Daarom moet elke bekabelde poort DHCP doen, ook als er
+tijdens de installatie geen kabel in zat. Route A regelt dat via de `network`-sectie van de
+autoinstall. Voor route B voegt `install.sh` `/etc/netplan/90-martha-lan.yaml` toe (DHCP op
+`e*`, `optional: true`), maar **alleen als `netplan get ethernets` leeg is**. Een bestaande
+(bijvoorbeeld statische) configuratie blijft dus ongemoeid. Activeren gaat met `netplan generate`
+plus `networkctl reload`, niet met `netplan apply`, zodat een SSH-sessie niet wegvalt.
 
 ### Updates
 Een nieuwe bundle (`download.ps1`) plus `install.sh` op de doel-pc. Dat is idempotent:

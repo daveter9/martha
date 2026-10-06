@@ -124,6 +124,8 @@ Home Assistant hoeven er nog niet op te staan. Internet is niet nodig.
    Zo dient dezelfde stick als installer **en** als bundle voor stap B3.
 2. Boot ervan en doorloop de installer zoals je wilt. Offline let je op:
    - *Network*: geen verbinding is prima, kies *Continue without network* als dat gevraagd wordt.
+     `install.sh` zet daarna DHCP aan op alle netwerkpoorten (als er nog geen bekabelde
+     configuratie is), zodat een kabel die je later insteekt vanzelf werkt.
    - *Ubuntu archive mirror*: de mirror-test faalt offline; ga door (*Continue*).
    - Kies **Ubuntu Server** (niet *minimized*) en vink **Install OpenSSH server** aan als je SSH wilt.
    - Featured server snaps: niets selecteren.
