@@ -210,13 +210,13 @@ sudo usermod -aG docker $USER                           # optioneel: docker zond
 |---|---|
 | `/opt/homeassistant/config` | Home Assistant-configuratie: **dit is wat je back-upt** |
 | `/opt/homeassistant/docker-compose.yml`, `.env` | Compose-project (image-versies, tijdzone) |
-| `/opt/homeassistant/postgres` | PostgreSQL/TimescaleDB-data (Recorder en LTSS): **ook back-uppen**, met `pg_dump` |
+| `/opt/homeassistant/postgres` | PostgreSQL/TimescaleDB-data (Recorder en LTSS); `martha-ha backup` neemt er een `pg_dump` van mee |
 | `/opt/homeassistant/db.env` | Databasewachtwoord (ook als `martha_db_url` in `config/secrets.yaml`) |
 | `/opt/homeassistant/pydeps` | Python-pakketten voor LTSS, door `install.sh` uit de wheels gebouwd |
 | `/opt/martha` | Kopie van de bundle (alleen bij route A) |
 | `/var/lib/martha/installed` | `bundle.env` van de laatste installatie |
 | `/var/lib/martha/ha-config.git` | Versiegeschiedenis van de HA-configuratie (`martha-ha`) |
-| `/var/lib/martha/backups` | Volledige back-ups van de config-map, inclusief database |
+| `/var/lib/martha/backups` | Volledige back-ups: de config-map plus een `pg_dump` van de database |
 
 ### Versies, back-ups en rollback (`martha-ha`)
 
@@ -272,14 +272,18 @@ sudo martha-ha staging up
 ```
 
 `restore` zet een **hele** back-up terug, dus ook de database van dat moment. De
-huidige config-map blijft ernaast staan als `/opt/homeassistant/config.before-restore-<tijd>`;
-die ruim je zelf op als alles goed is.
+huidige config-map blijft ernaast staan als `/opt/homeassistant/config.before-restore-<tijd>`,
+de huidige database als `homeassistant_before_restore_<tijd>`. Die ruim je zelf op als alles goed is:
+
+```bash
+sudo rm -rf /opt/homeassistant/config.before-restore-<tijd>
+sudo docker exec timescaledb psql -U homeassistant -d postgres -c 'DROP DATABASE homeassistant_before_restore_<tijd>'
+```
 
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).
-2. Maak een back-up van `/opt/homeassistant/config` en van de database:
-   `sudo docker exec timescaledb pg_dump -U homeassistant -Fc homeassistant > ha-db.dump`.
+2. Maak een back-up van de config en de database: `sudo martha-ha backup pre-update`.
 3. Installeer opnieuw zoals in [B2 (SSH)](#b2-installeren-via-ssh-vanaf-windows) of
    [B3 (USB)](#b3-installeren-via-usb-stick). Dat werkt ook voor een pc die met route A is geïnstalleerd.
 

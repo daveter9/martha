@@ -9,12 +9,13 @@ never written by a deploy or rollback.
   martha-ha init                 create the config repo (idempotent) and commit the current state
   martha-ha sync [-m MSG]        commit the current production state (changes made in the UI)
   martha-ha status               show the current version, recent history and backups
-  martha-ha backup [LABEL]       full, consistent backup of the config dir, including the database
+  martha-ha backup [LABEL]       full, consistent backup: config dir plus a pg_dump of the database
   martha-ha check REV            validate REV with check_config in a throwaway container
   martha-ha deploy REV [-m MSG]  merge REV into production: check, backup, apply, health check
   martha-ha rollback [REV]       revert deploy REV (default: the most recent deploy)
   martha-ha rollback --to REV    put the tracked files back exactly as they were at REV
-  martha-ha restore BACKUP       emergency: restore a full backup (the current config is kept aside)
+  martha-ha restore BACKUP       emergency: restore a full backup, database included (the current
+                                 config and database are kept aside)
   martha-ha staging up [REV]     run staging HA with production + REV merged (default: production)
   martha-ha staging test REV     check_config plus a staging boot of REV; exit 1 on errors
   martha-ha staging down         stop staging HA (its own logins and data are kept)
@@ -60,6 +61,11 @@ STAGING_CONFIG = STAGING + "/config"
 STAGING_SERVICE = "homeassistant-staging"
 STAGING_URL = "http://172.30.53.10:8123"   # fixed address, see host/docker-compose.yml
 BRANCH = "main"
+# Recorder and LTSS database (ADR-001): PostgreSQL in its own container.
+DB_CONTAINER = "timescaledb"
+DB_NAME = DB_USER = "homeassistant"
+DB_ENV = HA_DIR + "/db.env"
+DB_DUMP = "database/homeassistant.pgdump"   # path of the pg_dump inside a backup
 
 MIN_FREE = 5 * 1024**3   # a deploy or backup aborts below this much free disk space
 KEEP_COUNT = 30          # backups: always keep the newest 30 ...
@@ -253,15 +259,85 @@ def check_free(path, extra=0):
                     f"{(MIN_FREE + extra) // 1024**2} MB. Nothing was changed.")
 
 
+def db_exec(args, db=DB_NAME, **kw):
+    """Run a PostgreSQL client tool in the database container, over TCP with the password
+    from db.env (as install.sh does)."""
+    password = read_env(DB_ENV).get("POSTGRES_PASSWORD")
+    if not password:
+        raise Error(f"no POSTGRES_PASSWORD in {DB_ENV}")
+    cmd = ["docker", "exec", "-i", "-e", f"PGPASSWORD={password}", DB_CONTAINER,
+           *args, "-h", "127.0.0.1", "-U", DB_USER, "-d", db]
+    return subprocess.run(cmd, **kw)
+
+
+def psql(sql, db=DB_NAME):
+    res = db_exec(["psql", "-X", "-q", "-tA", "-v", "ON_ERROR_STOP=1", "-c", sql], db=db,
+                  text=True, capture_output=True)
+    if res.returncode != 0:
+        raise Error(f"psql failed: {res.stderr.strip()}")
+    return res.stdout.strip()
+
+
+def has_db():
+    """True if this install keeps its recorder in PostgreSQL (ADR-001). A database that
+    exists but is not running is an error: a backup without it would not be complete."""
+    if not os.path.isfile(DB_ENV):
+        return False
+    res = run(["docker", "inspect", "-f", "{{.State.Running}}", DB_CONTAINER], check=False)
+    if res.stdout.strip() != "true":
+        raise Error(f"database container {DB_CONTAINER} is not running; start it first "
+                    f"(docker compose -f {COMPOSE} up -d {DB_CONTAINER})")
+    return True
+
+
+def dump_db(dest):
+    """Consistent pg_dump (custom format, uncompressed: the backup tar is zstd already)."""
+    with open(dest, "wb") as f:
+        res = db_exec(["pg_dump", "-Fc", "-Z0"], stdout=f, stderr=subprocess.PIPE)
+    if res.returncode != 0:
+        raise Error(f"pg_dump failed: {res.stderr.decode(errors='replace').strip()}")
+
+
+def restore_db(dump):
+    """Replace the database with 'dump'. The current database is kept aside under another
+    name, so a restore never destroys data. Home Assistant must be stopped."""
+    aside = f"{DB_NAME}_before_restore_{stamp().replace('-', '_')}"
+    psql(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+         f"WHERE datname = '{DB_NAME}' AND pid <> pg_backend_pid()", db="postgres")
+    psql(f"ALTER DATABASE {DB_NAME} RENAME TO {aside}", db="postgres")
+    try:
+        psql(f"CREATE DATABASE {DB_NAME} OWNER {DB_USER}", db="postgres")
+        psql("CREATE EXTENSION IF NOT EXISTS timescaledb; SELECT timescaledb_pre_restore()")
+        with open(dump, "rb") as f:
+            res = db_exec(["pg_restore", "--no-owner", "--exit-on-error"], stdin=f,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        psql("SELECT timescaledb_post_restore()")
+        if res.returncode != 0:
+            raise Error(f"pg_restore failed: {res.stderr.decode(errors='replace').strip()}")
+    except BaseException:
+        with contextlib.suppress(Error):
+            psql(f"DROP DATABASE IF EXISTS {DB_NAME}", db="postgres")
+            psql(f"ALTER DATABASE {aside} RENAME TO {DB_NAME}", db="postgres")
+        raise
+    log(f"database restored; the previous database is kept as '{aside}' "
+        f"(remove it with: DROP DATABASE {aside})")
+
+
 def backup(label="manual"):
-    """Full backup of the config dir. SQLite databases are copied with the online backup
-    API, so the copy is consistent while HA keeps running."""
+    """Full backup: the config dir plus a pg_dump of the database. SQLite databases are
+    copied with the online backup API, so the copy is consistent while HA keeps running."""
     os.makedirs(BACKUPS, mode=0o700, exist_ok=True)
-    check_free(BACKUPS, dir_size(CONFIG))
+    db = has_db()
+    db_size = int(psql(f"SELECT pg_database_size('{DB_NAME}')")) if db else 0
+    check_free(BACKUPS, dir_size(CONFIG) + db_size)
     label = "".join(c if c.isalnum() or c in "-_" else "-" for c in label)[:40]
     path = f"{BACKUPS}/ha-{stamp()}-{label}.tar.zst"
     os.makedirs(WORK, mode=0o700, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=WORK) as tmp:
+        dump = None
+        if db:
+            dump = os.path.join(tmp, "homeassistant.pgdump")
+            dump_db(dump)
         snapshots = {}
         for name in sorted(os.listdir(CONFIG)):
             if name.endswith(".db") and os.path.isfile(os.path.join(CONFIG, name)):
@@ -288,6 +364,8 @@ def backup(label="manual"):
             tar.add(CONFIG, arcname="config", filter=skip)
             for name, snap in snapshots.items():
                 tar.add(snap, arcname=f"config/{name}")
+            if dump:
+                tar.add(dump, arcname=DB_DUMP)
     os.chmod(path + ".partial", 0o600)
     os.replace(path + ".partial", path)
     log(f"backup {path} ({os.path.getsize(path) // 1024**2} MB)")
@@ -317,13 +395,29 @@ def restore(name):
         raise Error(f"backup {path} not found (see 'martha-ha status')")
     backup("pre-restore")
     aside = f"{HA_DIR}/config.before-restore-{stamp()}"
+    os.makedirs(WORK, mode=0o700, exist_ok=True)
     compose("stop")
     try:
-        os.rename(CONFIG, aside)
-        with tarfile.open(path, "r:zst") as tar:
-            tar.extractall(HA_DIR, filter="tar")
+        with tempfile.TemporaryDirectory(dir=WORK) as tmp:
+            dump = None
+            with tarfile.open(path, "r:zst") as tar:
+                members = tar.getmembers()
+                config = [m for m in members if m.name == "config" or m.name.startswith("config/")]
+                if not config:
+                    raise Error(f"{path} holds no config directory")
+                if any(m.name == DB_DUMP for m in members):
+                    tar.extract(DB_DUMP, tmp, filter="data")
+                    dump = os.path.join(tmp, DB_DUMP)
+                os.rename(CONFIG, aside)
+                tar.extractall(HA_DIR, members=config, filter="tar")
+            if dump and has_db():
+                restore_db(dump)
+            elif os.path.isfile(DB_ENV):
+                log("WARNING: this backup has no database dump; the database was left as it is")
     except BaseException:
-        if os.path.isdir(aside) and not os.path.exists(CONFIG):
+        if os.path.isdir(aside):
+            with contextlib.suppress(FileNotFoundError):
+                shutil.rmtree(CONFIG)
             os.rename(aside, CONFIG)
         raise
     finally:

@@ -229,8 +229,12 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
     vangt niet alles: een ongeldige automation-trigger meldt HA pas bij het opstarten
     ("has been disabled"). Daarom leest de health-check na de deploy de log, en volgt bij
     zulke meldingen een automatische rollback (getest op martha, 2026-10-06).
-  - Back-ups zijn `tar.zst` (Python 3.14 `tarfile`), met SQLite-databases via de online
-    backup-API. Retentie: de nieuwste 30 en alles van de laatste 7 dagen; onder 5 GB vrij breekt hij af.
+  - Back-ups zijn `tar.zst` (Python 3.14 `tarfile`): de config-map, SQLite-databases via de
+    online backup-API, en een `pg_dump` (custom format) van PostgreSQL als
+    `database/homeassistant.pgdump`. `restore` zet de oude database opzij onder een andere naam
+    (`homeassistant_before_restore_<tijd>`) en laadt de dump in een nieuwe database, met
+    `timescaledb_pre_restore()`/`post_restore()` (getest op martha, 2026-10-07: hypertables,
+    continuous aggregates en policies komen terug). Retentie: de nieuwste 30 en alles van de laatste 7 dagen; onder 5 GB vrij breekt hij af.
 - **Staging-HA:** hetzelfde image, naast productie, op een `internal` Docker-netwerk (geen LAN,
   geen internet), niet privileged, database in het geheugen, dummy-secrets. Op het LAN
   bereikbaar via `http://martha.local:8124` (TCP-forward door martha-gate), met een eigen
@@ -258,18 +262,11 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 ## Open punten
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
-- Back-up van PostgreSQL (`pg_dump`) bestaat nog niet; hoort bij `martha-ha backup` (C19).
 - LTSS is een community-integratie zonder onderhoudsgarantie (laatste release 2024-12).
   Terugvaloptie volgens ADR-001: `mqtt_statestream` → Telegraf → Timescale.
-- **Deploy van ADR-001 loopt nog** (stand 2026-10-06): de bundle van `677069d` staat al in
-  `~/martha-bundle` op martha, maar `install.sh` is nog niet gedraaid, want `sudo` vraagt een
-  wachtwoord (de SSH-key geeft alleen toegang als `david`). Volgende stap: de gebruiker draait
-  `ssh -t david@martha.local "sudo martha-ha backup pre-timescaledb; sudo bash ~/martha-bundle/host/install.sh"`,
-  of zet een sudoers-regel neer (NOPASSWD voor alleen `install.sh` uit de bundle en
-  `martha-ha`), zodat Claude het zelf kan. Daarna controleren: schema toegepast, Recorder in
-  PostgreSQL, LTSS schrijft in `ltss`, `martha-ha` staging/check werken met LTSS. Nog niet
-  getest: `timescale.sql` (vooral `ltss_numeric` in een continuous aggregate en de
-  hiërarchische `ltss_1h`) en `psycopg2-binary` via `PYTHONPATH` voor de Recorder.
+- **ADR-001 staat op martha** (verse installatie, 2026-10-07): schema toegepast, de Recorder
+  schrijft in PostgreSQL en LTSS in `ltss`; `ltss_1m` en `ltss_1h` en hun policies bestaan.
+  Nog niet bekeken: of de aggregates met echte sensordata kloppen.
 - Attestatieproxy voor Phala: teep verifieert het ACI/1-formaat van `inference.phala.com`
   nog niet (zie [docs/phala.md](docs/phala.md#stap-6-attestatieproxy-open-punt)). Ook nog
   open: waar de proxy draait ten opzichte van de OpenShell-sandbox.
