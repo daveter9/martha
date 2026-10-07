@@ -30,7 +30,7 @@ Eisen:
 | Endpoint | `tee.redpill.ai` of `inference.phala.com` (attested TEE-domeinen); **niet** `api.redpill.ai` |
 | Model | GLM 5.3 Flash (Z.ai), TEE-deployment via Phala |
 | Router | Geen; OpenRouter valt af |
-| Verificatie | Lokale attestatie-verifiërende proxy tussen Hermes en Phala |
+| Verificatie | Lokale attestatie-verifiërende proxy tussen Hermes en Phala; **voorlopig zonder proxy**, zie *Aanvulling 2026-10-07* |
 | Budget | Prepaid tegoed als harde cap, plus per-key limiet indien beschikbaar |
 
 ### Onderbouwing: Phala direct, zonder OpenRouter
@@ -108,13 +108,44 @@ context, 70% cache-hit, ~25k output inclusief reasoning.
 ## Maatregelen
 
 - [ ] Attestatie-verifiërende proxy (bijvoorbeeld teep) op de HA-host; Hermes praat alleen
-      met die proxy.
+      met die proxy. *Uitgesteld*, zie *Aanvulling 2026-10-07*.
 - [ ] Endpoint vastzetten op `tee.redpill.ai` of `inference.phala.com`.
 - [ ] Prepaid tegoed klein houden (startwaarde ~$15) als harde cap.
 - [ ] Nagaan of Phala per API-key een spend-limiet met maandelijkse reset biedt (oudere
       RedPill-documentatie noemt een limiet per key; huidige stand niet geverifieerd).
 - [ ] Elke gegenereerde config valideren met `ha core check` vóór herstart.
 - [ ] NEAR AI Cloud met GLM 5.3 Flash als handmatige fallback documenteren.
+
+## Aanvulling 2026-10-07: voorlopig zonder attestatieproxy
+
+**Besluit (gebruiker):** Hermes praat voorlopig rechtstreeks met `inference.phala.com`, zonder
+lokale attestatie-verifiërende proxy. Dat is optie 3 uit `docs/phala.md`, stap 6.
+
+**Waarom:** teep ondersteunt het ACI/1-formaat van `inference.phala.com` nog niet (zie
+`docs/phala.md`), en een eigen verifiërende proxy is meer werk dan het nu waard is. Getest met
+de echte key:
+- De TLS-sleutel van `inference.phala.com` staat in de TDX-attestatie van de gateway
+  (`docs/phala.md`, stap 5a).
+- De receipt van elk verzoek bevat `upstream.verified` met `required: true` en
+  `result: verified`. Dat geldt **ook zonder** `provider.aci_verified` in het verzoek, en zelfs
+  met `aci_verified: false`. De gateway dwingt de verificatie van de model-enclave voor dit
+  model dus zelf af. Dat is waargenomen gedrag, geen gedocumenteerde garantie.
+- De route is `near-ai:z-ai/glm-5.3-flash`: het model draait in een enclave van NEAR AI, achter
+  de Phala-gateway.
+
+**Gevolgen:**
+- Niemand controleert per verbinding dat de TLS-verbinding in de enclave eindigt. We
+  vertrouwen erop dat de certificaatsleutel van `inference.phala.com` alleen in de
+  gateway-CVM bestaat, zoals de attestatie zegt. C20 wordt daarmee "attested endpoint, met
+  handmatige controle" in plaats van "gecontroleerd per verzoek".
+- Waar Hermes of OpenShell extra velden in de body kan meesturen, gaat
+  `"provider": {"aci_verified": true, "zdr": true}` toch mee (fase 4), zodat Phala weigert als de
+  verificatie ooit niet meer standaard is.
+- Periodieke controle: stap 5a (attestatie en TLS-sleutel) en 5b (receipt) uit
+  `docs/phala.md`, in elk geval na een wijziging bij Phala en maandelijks in de bouwfase.
+
+**Herzien wanneer:** teep (of `@phala/aci-verifier`) ACI/1 voor `inference.phala.com`
+ondersteunt, of wanneer een receipt geen `upstream.verified: verified` meer toont.
 
 ## Bronnen
 

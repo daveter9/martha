@@ -44,7 +44,9 @@ Stand bij de gebruiker:
 - **Fase 4:** `agent/install-agent.sh`, met NemoClaw/Hermes (online), de `daemon.json`-fix
   voor cgroupns, de swap tot 8 GB, `agent/policy/martha.yaml` en de skill `agent/skills/martha-ha/`
   (de endpoints van martha-gate, met het agent-token uit `/etc/martha/gate.env`).
-  - Eerst beslissen: de attestatieproxy voor Phala (`docs/phala.md`, stap 6) en waar die draait.
+  - Inference: rechtstreeks naar `inference.phala.com`, zonder attestatieproxy (keuze van de
+    gebruiker, 2026-10-07; ADR-002). Uitzoeken of Hermes/OpenShell
+    `"provider": {"aci_verified": true, "zdr": true}` kan meesturen (`docs/phala.md`, stap 7).
 - **Fase 5:** proactieve tips (een geplande Hermes-taak).
 
 ## Werkwijze bij hervatten

@@ -158,7 +158,7 @@ de TEE-keten dus niet, maar draait bij NEAR AI, de fallback-provider uit de ADR.
 
 Ruim daarna op: `rm headers.txt attestation.json receipt.json; unset PHALA_API_KEY`.
 
-## Stap 6: attestatieproxy (open punt)
+## Stap 6: attestatieproxy (uitgesteld)
 
 De ADR wil een lokale proxy, bijvoorbeeld [teep](https://github.com/13rac1/teep), tussen
 Hermes en Phala. Die proxy verifieert de attestatie, weigert bij twijfel (fail-closed), voegt
@@ -175,25 +175,32 @@ Hermes en Phala. Die proxy verifieert de attestatie, weigert bij twijfel (fail-c
   draait op dezelfde Phala-stack, dus de code bestaat al. Alleen de Phala-provider gebruikt
   hem nog niet.
 
-Dit is een architectuurkeuze en staat daarom als open punt in DESIGN.md. Mogelijke routes:
+**Besluit (2026-10-07): route 3, voorlopig zonder proxy** (ADR-002, *Aanvulling 2026-10-07*).
+Getest: ook zonder `provider.aci_verified` in het verzoek, en zelfs met `false`, staat in de receipt
+`upstream.verified` met `required: true` en `result: verified`. De gateway dwingt de verificatie
+van de model-enclave voor GLM 5.3 Flash dus zelf af. Dat is waargenomen gedrag, geen garantie;
+controleer daarom periodiek stap 5a en 5b. De routes waren:
 
 1. **teep uitbreiden** (upstream PR): de Phala-provider op `inference.phala.com` laten
    werken met de ACI/1-verificatie die er voor Venice al is.
 2. **Eigen kleine proxy** op basis van [`@phala/aci-verifier`](https://docs.phala.com/phala-cloud/confidential-ai/verify/typescript-sdk.md)
    (Node). Die verifieert een verse attestatie met nonce en pint de TLS-verbinding op de
    attested SPKI. De proxy voegt alleen de key en het `provider`-blok toe.
-3. **Tijdelijk zonder proxy**: alleen `aci_verified` plus periodiek stap 5. Dat is zwakker:
-   niemand controleert dan per verbinding of TLS in de enclave eindigt.
+3. **Tijdelijk zonder proxy** (gekozen): `aci_verified` meesturen waar Hermes dat kan, plus
+   periodiek stap 5. Dat is zwakker: niemand controleert dan per verbinding of TLS in de
+   enclave eindigt.
 
-Ook nog te beslissen: **waar** de proxy draait. Hermes zit in de OpenShell-sandbox en praat
+Komt de proxy er later toch, dan moet nog beslist worden **waar** hij draait. Hermes zit in de OpenShell-sandbox en praat
 met `inference.local`; OpenShell beheert de key. Draait de proxy op de host, dan moet de
 inference-route van OpenShell naar de proxy wijzen en niet meer naar Phala, en houdt de
 proxy de key.
 
-## Stap 7: koppelen aan Hermes (later, agent-fase)
+## Stap 7: koppelen aan Hermes (fase 4)
 
-Pas zodra de proxy er is. Dan krijgt OpenShell als inference-endpoint de proxy (niet
-`inference.phala.com`) en als model `z-ai/glm-5.3-flash`. Deze gids vullen we in die fase aan.
+Zonder proxy krijgt OpenShell als inference-endpoint `https://inference.phala.com/v1`, als model
+`z-ai/glm-5.3-flash` en de key van stap 2. Kan Hermes of OpenShell extra velden in de body
+meesturen, zet dan `"provider": {"aci_verified": true, "zdr": true}` erbij. Deze gids vullen we
+in fase 4 aan.
 
 ## Stap 8: in gebruik
 
@@ -209,7 +216,7 @@ Pas zodra de proxy er is. Dan krijgt OpenShell als inference-endpoint de proxy (
 
 | Maatregel | Stand |
 |---|---|
-| Attestatie-verifiërende proxy | Open, zie stap 6 |
+| Attestatie-verifiërende proxy | Uitgesteld (route 3), zie stap 6 en ADR-002 |
 | Endpoint vastzetten | `inference.phala.com`, deze gids |
 | Prepaid tegoed ~$15 | Stap 1 |
 | Spend-limiet per key | Nagaan bij het aanmaken van de key, stap 2 |

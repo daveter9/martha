@@ -29,7 +29,7 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C17 | Een wijziging gaat pas live na een **geslaagde test op staging en goedkeuring in de HA Companion-app**. | De goedkeuring loopt via productie-HA met een eenmalige nonce die de agent nooit ziet. Ook een rollback-verzoek van de agent vraagt goedkeuring. |
 | C18 | Deploy en rollback raken **de database en niet-getrackte bestanden nooit**. | Alleen bestanden op de allowlist van de config-repo worden geschreven. Rollback is een revert-commit; de git-historie wordt nooit herschreven. |
 | C19 | **Vóór elke deploy een volledige back-up**, en niets verdwijnt zonder retentiebeleid. | `martha-ha backup` maakt een consistente kopie van de hele config-map plus een `pg_dump` van de database (die staat sinds ADR-001 in PostgreSQL, niet meer in de config-map). Te weinig vrije schijf breekt de deploy af. |
-| C20 | Prompts van de agent gaan **alleen naar een attested TEE-endpoint, nooit via een router**. | Phala direct op `inference.phala.com` of `tee.redpill.ai`, nooit `api.redpill.ai` of OpenRouter. Een lokale proxy controleert de attestatie vóór elk verzoek (zie [ADR-002](docs/adr/ADR-002-inference-provider.md)). |
+| C20 | Prompts van de agent gaan **alleen naar een attested TEE-endpoint, nooit via een router**. | Phala direct op `inference.phala.com` of `tee.redpill.ai`, nooit `api.redpill.ai` of OpenRouter (zie [ADR-002](docs/adr/ADR-002-inference-provider.md)). Voorlopig zonder lokale attestatieproxy: de gateway dwingt de verificatie van de model-enclave af (getest), en attestatie en receipts worden periodiek met de hand gecontroleerd (ADR-002, *Aanvulling 2026-10-07*). |
 | C21 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
 | C22 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
 
@@ -329,6 +329,7 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 - **ADR-001 staat op martha** (verse installatie, 2026-10-07): schema toegepast, de Recorder
   schrijft in PostgreSQL en LTSS in `ltss`; `ltss_1m` en `ltss_1h` en hun policies bestaan.
   Nog niet bekeken: of de aggregates met echte sensordata kloppen.
-- Attestatieproxy voor Phala: teep verifieert het ACI/1-formaat van `inference.phala.com`
-  nog niet (zie [docs/phala.md](docs/phala.md#stap-6-attestatieproxy-open-punt)). Ook nog
-  open: waar de proxy draait ten opzichte van de OpenShell-sandbox.
+- Attestatieproxy voor Phala: **uitgesteld** (keuze van de gebruiker, 2026-10-07; ADR-002,
+  *Aanvulling 2026-10-07*). Opnieuw bekijken zodra teep of `@phala/aci-verifier` het ACI/1-formaat
+  van `inference.phala.com` ondersteunt. Komt hij er, dan moet nog besloten worden waar hij
+  draait ten opzichte van de OpenShell-sandbox.
