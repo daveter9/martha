@@ -256,6 +256,68 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
     `install.sh`. Staging en de agent krijgen hem dus nooit; staging houdt zijn eigen
     Recorder-database. `check_config` krijgt `/opt/homeassistant/pydeps` mee, zodat LTSS
     (in de kopie van productie) te importeren is.
+- **martha-gate** (fase 3, getest op martha op 2026-10-07): twee processen, zodat het deel dat
+  met de agent praat geen root heeft.
+  - `martha-ha serve` (`martha-ha.service`, root) luistert op `/run/martha/ha.sock`
+    (`root:martha-gate 0660`), met JSON per regel. Commando's: `create`, `list`, `show`, `test`,
+    `submit`, `withdraw`, `resend`, `approval`, `rollback_request`, `logs`, `template`, `files`,
+    `file` en `history`. Een staging-test en een deploy draaien in een workerthread op de
+    bestaande flock (`locked(wait=True)`); de agent vraagt de status op. Bij een herstart worden
+    `testing` en `approved` op `failed` en `failed-deploy` gezet.
+  - `martha_gate.py` (`martha-gate.service`, user `martha-gate`, `ProtectSystem=strict`,
+    `NoNewPrivileges`, zonder capabilities) luistert op poort 8765. De endpoints staan in de
+    docstring. Productie is voor de agent alleen-lezen: `GET` op states, config, services,
+    history, logbook en events, met het token van de niet-admin HA-gebruiker "Martha gate"
+    (`local_only`). Elke andere methode op `/ha/` geeft 403, en `.`- en `..`-segmenten
+    (ook gecodeerd) geven 400. Staging is volledig bereikbaar, met een admin-token van staging.
+  - **De gate leest de config-repo via de daemon** (`files`, `file`, `history`), niet zelf.
+    De repo blijft 0700 root; er zijn geen groepsrechten of `safe.directory` nodig (keuze van
+    de gebruiker, 2026-10-07).
+  - **`/api/template` vereist in HA een admin.** De gate laat templates daarom renderen door
+    de daemon, met het root-token. Een template kan niets schakelen of schrijven.
+  - **Voorstellen:** JSON `{title, description, files: {pad: inhoud|null}}`, met hele bestanden.
+    De daemon maakt de commit met een tijdelijke `GIT_INDEX_FILE` op `refs/proposals/<id>`
+    (id = 20 hex-tekens) en zet de metadata in `/var/lib/martha/proposals/<id>.json` (0600).
+    Geweigerd worden:
+    - een pad dat `info/exclude` negeert (`git check-ignore --no-index`), en
+      `secrets.yaml` en `packages/martha_gate.yaml`;
+    - meer dan 50 bestanden, of een bestand groter dan 512 KB;
+    - ongeldige JSON in `.storage`;
+    - inhoud met `MARTHA_APPROVE`, `MARTHA_REJECT`, `martha_gate`, `call_service` of
+      `secrets.yaml`. Dat is verdediging in de diepte: een automation in productie zou een
+      `call_service`-event van de goedkeuringsmelding kunnen lezen, en daarin staat de nonce.
+      Het echte vangnet is dat de gebruiker de diff ziet vóór Toepassen.
+  - **Goedkeuring:** `submit` maakt een nonce (`token_hex(16)`; alleen de sha256 wordt bewaard,
+    en de agent ziet ook die niet). Daarna volgt een melding via `notify.<NOTIFY_SERVICE>` met de
+    acties `MARTHA_APPROVE_<id>_<nonce>`, `MARTHA_REJECT_<id>_<nonce>` en een URI naar
+    `http://<host>.local:8765/p/<id>`. `packages/martha_gate.yaml` (template in `host/ha/packages/`)
+    vangt `mobile_app_notification_action` op en stuurt de actie via `rest_command` naar
+    `/approval`, met `X-Martha-Secret`. De daemon controleert de nonce (`hmac.compare_digest`),
+    wist hem (één keer bruikbaar) en deployt, of draait bij een rollback-verzoek
+    `rollback(<deploy>)`. Daarna volgt een resultaatmelding met dezelfde `tag`.
+  - **`packages/martha_gate.yaml` staat buiten de config-repo** (in de allowlist uitgezonderd,
+    net als `martha_storage.yaml`). `setup-gate` schrijft hem zelf, na `check_config`, gevolgd
+    door een herstart. Zo kan geen deploy of `rollback --to` de goedkeuring weghalen (keuze
+    van de gebruiker, 2026-10-07).
+  - **iOS:** een tik op een melding of een knop laat de melding verdwijnen. Een gewone tik opent
+    daarom de diff-pagina (`url`, en `clickAction` voor Android); de knoppen staan onder lang
+    indrukken. Op de diff-pagina staat "Stuur de melding opnieuw" (`POST /p/<id>/resend`, zonder
+    login). Die maakt een nieuwe nonce, waarmee de oude knoppen ongeldig worden, en kan hooguit
+    eens per 30 seconden. Hij kan niets goedkeuren: hij stuurt alleen een melding naar de telefoon
+    van de gebruiker.
+  - **Staging** stopt na een goedkeuring of afwijzing, als er geen voorstel meer openstaat (RAM).
+  - Na een rollback van een YAML-entity blijft die als `unavailable` (`restored: true`) in het
+    entity-register staan. Dat is gewoon HA-gedrag; verwijderen kan in de UI.
+  - **`martha-ha setup-gate`** (interactief) logt in via de login-flow (`/auth/login_flow`,
+    `/auth/token`) en maakt via een minimale stdlib-websocketclient:
+    - het long-lived token `martha-root` (`/etc/martha/ha-root.env`, 0600, samen met
+      `NOTIFY_SERVICE`);
+    - de gebruiker "Martha gate" met een eigen token;
+    - een staging-token.
+    Die laatste twee komen samen met `AGENT_TOKEN` en `APPROVAL_SECRET` in `/etc/martha/gate.env`
+    (`0640 root:martha-gate`). Een nieuwe run houdt `AGENT_TOKEN` en `APPROVAL_SECRET`, tenzij je
+    `--rotate` meegeeft; de HA-tokens en de gebruiker worden steeds opnieuw gemaakt.
+    `activate()` leest `HA_TOKEN` uit `ha-root.env`.
 - **Nieuwe integraties** (config flows met credentials) vallen buiten de agent: die stelt hij
   voor en legt hij uit, de gebruiker voegt ze toe in de UI.
 

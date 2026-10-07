@@ -24,7 +24,7 @@ Er zijn twee installatieroutes:
 | `1. download/download.ps1` | Vult `offline/` met Docker-packages, de images van Home Assistant en TimescaleDB, en LTSS met zijn wheels | Windows, **met** internet |
 | `2. usb/make-usb.ps1` | Zet de bundle (en voor route A `autoinstall.yaml`) op een USB-stick | Windows |
 | `2. ssh/install-ssh.ps1` | Route B over SSH: kopieert de bundle en draait `install.sh` op de server | Windows, LAN naar de server |
-| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service, `martha-ha` (`gate/`), databaseschema (`db/`) en HA-package (`ha/`) | Doel-pc |
+| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service, `martha-ha` en `martha-gate` (`gate/`), databaseschema (`db/`) en HA-packages (`ha/`) | Doel-pc |
 | `agent/` | Optionele Hermes-agent: [voorbereiding (Telegram, API-key)](agent/README.md) | Doel-pc, **met** internet |
 | `offline/` | Gegenereerde bundle (signed apt-mirror, OCI-images, LTSS, wheels) | Doel-pc |
 | `docs/adr/` | Architectuurbeslissingen (ADR's) | - |
@@ -216,6 +216,8 @@ sudo usermod -aG docker $USER                           # optioneel: docker zond
 | `/opt/martha` | Kopie van de bundle (alleen bij route A) |
 | `/var/lib/martha/installed` | `bundle.env` van de laatste installatie |
 | `/var/lib/martha/ha-config.git` | Versiegeschiedenis van de HA-configuratie (`martha-ha`) |
+| `/var/lib/martha/proposals` | Voorstellen van de agent en hun status (`martha-ha proposals`) |
+| `/etc/martha/ha-root.env`, `gate.env` | Tokens van `martha-ha` en `martha-gate`, gemaakt door `martha-ha setup-gate` |
 | `/var/lib/martha/backups` | Volledige back-ups: de config-map plus een `pg_dump` van de database |
 
 ### Versies, back-ups en rollback (`martha-ha`)
@@ -279,6 +281,43 @@ de huidige database als `homeassistant_before_restore_<tijd>`. Die ruim je zelf 
 sudo rm -rf /opt/homeassistant/config.before-restore-<tijd>
 sudo docker exec timescaledb psql -U homeassistant -d postgres -c 'DROP DATABASE homeassistant_before_restore_<tijd>'
 ```
+
+### Goedkeuren op je telefoon (`martha-gate`)
+
+`martha-gate` (poort 8765) is de enige toegang van de agent tot Home Assistant. De agent leest
+productie, maar kan er niets wijzigen. Hij doet voorstellen, test ze op staging en vraagt jou om
+goedkeuring. Pas als jij op **Toepassen** drukt, deployt `martha-ha` (met `check_config`,
+back-up, health-check en automatische rollback). Ook een rollback-verzoek van de agent vraagt
+jouw goedkeuring.
+
+Eenmalig instellen, nadat productie en staging geonboard zijn en de Companion-app op productie
+is ingelogd. Draai dit in je eigen terminal, want het vraagt om je HA-wachtwoorden:
+
+```bash
+ssh -t david@martha.local sudo martha-ha setup-gate
+```
+
+Je logt in op productie en daarna op staging. Het script maakt de tokens en de niet-admin
+gebruiker **Martha gate** aan, zet `packages/martha_gate.yaml` neer (de automation die je
+Toepassen/Afwijzen doorgeeft), herstart HA en stuurt een testmelding. Opnieuw draaien kan;
+met `--rotate` krijgt de agent een nieuw token.
+
+Een voorstel komt binnen als melding **"Martha: <titel>"**:
+- **Tik** op de melding: de diff-pagina opent (`http://martha.local:8765/p/<id>`).
+- **Houd de melding lang ingedrukt** (iOS) of klap hem uit (Android) voor **Toepassen**,
+  **Afwijzen** en **Bekijken**.
+- Op iOS verdwijnt een melding zodra je erop tikt. Druk dan onderaan de diff-pagina op
+  **Stuur de melding opnieuw**. De knoppen in de oude melding werken daarna niet meer.
+
+Elke goedkeuring werkt maar één keer. Na afloop krijg je een melding met het resultaat.
+
+```bash
+sudo martha-ha proposals                    # voorstellen en hun status
+sudo journalctl -u martha-ha -u martha-gate  # wat de daemon en de gate doen
+```
+
+Haalt een rollback een helper of andere entity weg, dan blijft die als *niet beschikbaar*
+in *Instellingen → Entiteiten* staan. Verwijder hem daar.
 
 ## Updaten (offline, beide routes)
 

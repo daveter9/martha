@@ -43,25 +43,21 @@ nieuw token en het oude werkt niet meer. Daarna installeer je de agent opnieuw m
 
 ## 3. Inference-provider en API-key
 
-Hermes heeft een taalmodel nodig. Dat draait bij een provider naar keuze, met jouw eigen API-key.
+Hermes gebruikt GLM 5.3 Flash bij **Phala Confidential AI**, rechtstreeks op een attested
+TEE-endpoint ([ADR-002](../docs/adr/ADR-002-inference-provider.md), C20). Routers als
+OpenRouter zijn uitgesloten: die zien je prompts.
 
-| Provider | Opmerking |
-|---|---|
-| **OpenRouter** (aanbevolen als je twijfelt) | Eén key voor veel modellen (Hermes, Claude, GPT, ...), met een uitgavelimiet per key. |
-| Anthropic | Claude-modellen. |
-| OpenAI | GPT-modellen. |
-| NVIDIA | NVIDIA-endpoints (Nemotron e.d.). |
-| Google Gemini | Gemini-modellen. |
-| Nous (Hermes-provider) | Hermes-modellen van Nous Research. |
+Volg [docs/phala.md](../docs/phala.md), stap 1 t/m 4: account, tegoed (~$15, zonder automatisch
+opwaarderen), een API-key alleen voor martha, en een testverzoek. Bewaar de key in je
+wachtwoordmanager. Hij komt nooit in deze repo; je typt hem bij de installatie zelf in op martha.
 
-1. Maak bij de provider een account en een **nieuwe API-key, alleen voor martha**. Dan kun
-   je hem los intrekken.
-2. Stel een **maandlimiet** in. De agent draait ook geplande taken, zoals de verbetertips.
-3. Bewaar de key in je wachtwoordmanager. Je typt hem bij de installatie zelf in op martha.
-   Hij komt nooit in deze repo of in een chat, en staat ook niet in de sandbox: OpenShell
-   houdt de key buiten de sandbox en de agent praat alleen met `inference.local`.
+Key kwijt of uitgelekt? Trek hem in bij Phala, maak een nieuwe aan en installeer de agent opnieuw.
 
-Key kwijt of uitgelekt? Trek hem in bij de provider, maak een nieuwe aan en installeer de agent opnieuw.
+## 4. martha-gate
+
+Zie [Goedkeuren op je telefoon](../readme.md#goedkeuren-op-je-telefoon-martha-gate) in de
+readme: draai eenmalig `ssh -t david@martha.local sudo martha-ha setup-gate` en controleer
+dat de testmelding binnenkomt.
 
 ## Checklist vóór de installatie
 
@@ -70,4 +66,5 @@ Key kwijt of uitgelekt? Trek hem in bij de provider, maak een nieuwe aan en inst
 - [ ] Je hebt het Telegram-bottoken (in je wachtwoordmanager).
 - [ ] Je weet je Telegram-user-ID.
 - [ ] Je hebt de bot zelf een keer gestart.
-- [ ] Je hebt een inference-provider, een API-key en een maandlimiet.
+- [ ] Je hebt een Phala-account met tegoed en een API-key, en het testverzoek uit `docs/phala.md` werkt.
+- [ ] `martha-ha setup-gate` is gedraaid en de testmelding kwam binnen.
