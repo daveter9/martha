@@ -71,8 +71,8 @@ curl -s -D headers.txt https://inference.phala.com/v1/chat/completions \
 grep -i '^x-receipt-id\|^x-aci-' headers.txt
 ```
 
-Verwacht: een antwoord van het model en de headers `x-receipt-id`, `x-aci-identity` en
-`x-aci-keyset-digest`.
+Verwacht: een antwoord van het model en de headers `x-receipt-id`, `x-aci-version: aci/1` en
+`x-aci-keyset-digest` (getest op 2026-10-07; een `x-aci-identity`-header komt er niet mee).
 
 `aci_verified: true` betekent dat de gateway het verzoek alleen doorstuurt naar een upstream
 die hij binnen de TEE heeft geverifieerd. Is die er niet, dan krijg je **503 en wordt de
@@ -142,8 +142,19 @@ Een geldige handtekening alleen is niet genoeg: het gaat erom dat de gateway de 
 request- en response-hash, sessie) staat in het
 [Private Inference API Cookbook](https://hackmd.io/@eLrG7p-xQKu7_FayKVbxYA/phala-private-inference-api-cookbook).
 
-> Stap 5b is niet getest bij het schrijven van deze gids (er was geen key). Wijkt de
-> structuur van de receipt af, pas deze gids dan aan.
+Zo ziet een receipt eruit (getest op 2026-10-07):
+
+| Veld | Waarde |
+|---|---|
+| `event_log[].type` | `request.received`, `middleware.forwarded`, `route.selected`, `request.forwarded`, `upstream.verified`, `response.received`, `response.returned` |
+| `route.selected` → `target_route_id` | `near-ai:z-ai/glm-5.3-flash` |
+| `upstream.verified` | `required: true`, `result: verified`, plus een `session_id` |
+| `key_id` | `dstack-kms-receipt-ed25519-v1` (ed25519-handtekening in `signature`) |
+| `workload_keyset_digest` | gelijk aan `x-aci-keyset-digest` en aan de attestatie uit 5a |
+
+Let op `target_route_id`: de Phala-gateway (in een TDX-CVM) stuurt GLM 5.3 Flash door naar
+een model-enclave van **NEAR AI** en verifieert die enclave per verzoek. De prompt verlaat
+de TEE-keten dus niet, maar draait bij NEAR AI, de fallback-provider uit de ADR.
 
 Ruim daarna op: `rm headers.txt attestation.json receipt.json; unset PHALA_API_KEY`.
 
