@@ -1,0 +1,40 @@
+[Unit]
+Description=Martha: martha-gate, the agent's only access to Home Assistant (port 8765)
+After=network-online.target martha-ha.service
+Wants=martha-ha.service
+# Written by 'martha-ha setup-gate'; until then the gate does not start.
+ConditionPathExists=/etc/martha/gate.env
+
+[Service]
+User=martha-gate
+Group=martha-gate
+ExecStart=/usr/bin/python3 /usr/local/lib/martha/martha_gate.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+# The daemon's socket; everything else is read only.
+ReadWritePaths=-/run/martha
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

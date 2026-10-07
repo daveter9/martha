@@ -289,6 +289,24 @@ systemctl restart martha-staging-proxy.service
 for _ in $(seq 60); do [ -f "$HA_DIR/config/configuration.yaml" ] && break; sleep 2; done
 martha-ha init || log "WARNING: martha-ha init failed; run 'sudo martha-ha init' later"
 
+# --- 8. martha-gate: the agent's only access (phase 3) --------------------------------
+# The gate runs as its own system user; the root daemon (martha-ha serve) does all that
+# needs privileges. The gate starts once 'martha-ha setup-gate' has written its tokens.
+getent group martha-gate >/dev/null || groupadd --system martha-gate
+id -u martha-gate >/dev/null 2>&1 ||
+    useradd --system --gid martha-gate --no-create-home --home-dir /nonexistent \
+        --shell /usr/sbin/nologin martha-gate
+install -m 0644 "$ROOT/host/gate/martha_gate.py" /usr/local/lib/martha/martha_gate.py
+install -m 0644 "$ROOT/host/ha/packages/martha_gate.yaml" /usr/local/lib/martha/martha_gate.yaml
+install -m 0644 "$ROOT/host/martha-ha.service" /etc/systemd/system/martha-ha.service
+install -m 0644 "$ROOT/host/martha-gate.service" /etc/systemd/system/martha-gate.service
+install -d -m 0755 /etc/martha
+install -d -m 0700 "$STATE_DIR/proposals"
+systemctl daemon-reload
+systemctl enable martha-ha.service martha-gate.service
+systemctl restart martha-ha.service
+systemctl restart martha-gate.service
+
 cp "$OFFLINE/bundle.env" "$STATE_DIR/installed"
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
