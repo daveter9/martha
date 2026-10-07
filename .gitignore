@@ -4,3 +4,5 @@
 # The ISO is stored as LFS parts (<2 GB each, GitHub limit); rebuild with "0. install os/iso.ps1 -Join"
 *.iso
 __pycache__/
+# Local secrets (sudo, API keys, tokens); never committed
+.secrets/

@@ -204,14 +204,21 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 - **Isolatie:** NVIDIA NemoClaw met OpenShell. Netwerk deny-by-default met L7-inspectie,
   Landlock en seccomp. De inference-key en het Telegram-token beheert OpenShell; de agent
   praat met `inference.local`. De gebruiker levert de key zelf aan bij `install-agent.sh`.
-  Ubuntu 26.04 is bij NVIDIA "tested with limitations"; k3s in Docker vraagt
-  `"default-cgroupns-mode": "host"` in `/etc/docker/daemon.json`.
+  Ubuntu 26.04 is bij NVIDIA "tested with limitations". De `daemon.json`-fix
+  (`default-cgroupns-mode: host`) is niet meer nodig: OpenShell zet host-cgroupns op zijn eigen
+  container (NemoClaw v0.0.124, `preflight.ts`), dus Docker voor HA blijft ongewijzigd.
+- **NemoClaw draait als de admin-gebruiker `david`** (keuze van de gebruiker, 2026-10-07):
+  NemoClaw installeert per gebruiker (Node via nvm, CLI's in `~/.local/bin`, de OpenShell-gateway
+  als systemd-user-service). `david` zit daarvoor in de groep `docker` (≈ root) en heeft
+  lingering aan, zodat de gateway na een reboot start. De agent zelf zit in de sandbox en
+  heeft geen Docker-toegang.
 - **Inference:** GLM 5.3 Flash (`z-ai/glm-5.3-flash`) rechtstreeks bij Phala Confidential AI,
-  achter een lokale attestatie-verifiërende proxy. Beslissing en onderbouwing in
+  voorlopig zonder lokale attestatieproxy (ADR-002, *Aanvulling 2026-10-07*). In NemoClaw is
+  dat de provider `custom` met `NEMOCLAW_ENDPOINT_URL`. Beslissing en onderbouwing in
   [ADR-002](docs/adr/ADR-002-inference-provider.md), opzetten in [docs/phala.md](docs/phala.md).
-- **Geheugen:** martha heeft nu 7,1 GB RAM (NemoClaw-minimum 8 GB of 8 GB swap). Tot de
-  upgrade naar 32 GB vergroot `install-agent.sh` de swap en draait staging alleen zolang er
-  een voorstel openstaat.
+- **Geheugen:** martha heeft 30 GB RAM en 8 GB swap (`/swap.img`, gecontroleerd op 2026-10-07).
+  Dat ruim boven het NemoClaw-minimum van 8 GB, dus `install-agent.sh` hoeft geen swap aan te
+  maken. Staging draait toch alleen zolang er een voorstel openstaat.
 - **Config-repo** (`/var/lib/martha/ha-config.git`) met een allowlist: `configuration.yaml`,
   `packages/`, `automations.yaml`, `scripts.yaml`, `scenes.yaml`, `blueprints/`, YAML-dashboards,
   en uit `.storage` alleen dashboards, helpers en de area-, floor- en label-registry.
