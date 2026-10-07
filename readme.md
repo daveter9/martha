@@ -135,6 +135,14 @@ Home Assistant hoeven er nog niet op te staan. Internet is niet nodig.
    - Kies **Ubuntu Server** (niet *minimized*) en vink **Install OpenSSH server** aan als je SSH wilt.
    - Featured server snaps: niets selecteren.
 3. Reboot na de installatie en haal de stick er even uit.
+4. De handmatige installer maakt met LVM een root-volume van maar 100 GB, ook op een grotere
+   schijf. Vergroot het online tot de hele schijf (dat kan ook later, zonder dataverlies):
+
+   ```bash
+   sudo lvextend -r -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+   ```
+
+   Route A heeft dit niet nodig (`sizing-policy: all`).
 
 Daarna installeer je Docker en Home Assistant op een van twee manieren: **B2 via SSH**
 (aanbevolen als de server in het netwerk hangt) of **B3 via USB**.
