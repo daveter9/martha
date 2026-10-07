@@ -1,0 +1,33 @@
+# Approval of agent proposals (phase 3, DESIGN.md C17).
+# Installed by 'martha-ha setup-gate' as packages/martha_gate.yaml. It is not in the config
+# repository, so no deploy or rollback can change or remove it, and proposals may not
+# mention it. martha_gate_secret is written to secrets.yaml by setup-gate.
+#
+# A tapped notification action MARTHA_APPROVE_<id>_<nonce> or MARTHA_REJECT_<id>_<nonce>
+# is passed on to martha-gate, which checks the one-time nonce.
+
+rest_command:
+  martha_gate_approval:
+    url: http://127.0.0.1:8765/approval
+    method: POST
+    headers:
+      X-Martha-Secret: !secret martha_gate_secret
+    content_type: application/json
+    payload: '{"action": {{ action | to_json }}}'
+    timeout: 30
+
+automation:
+  - id: martha_gate_approval
+    alias: "Martha gate: goedkeuring doorgeven"
+    description: "Geeft Toepassen/Afwijzen uit de Companion-app door aan martha-gate."
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: mobile_app_notification_action
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.action is match('MARTHA_(APPROVE|REJECT)_') }}"
+    actions:
+      - action: rest_command.martha_gate_approval
+        data:
+          action: "{{ trigger.event.data.action }}"

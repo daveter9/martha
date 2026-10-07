@@ -1,0 +1,17 @@
+[Unit]
+Description=Martha: martha-ha daemon (proposals, staging tests, approved deploys) for martha-gate
+After=docker.service
+Wants=docker.service
+
+[Service]
+# Runs as root: it is the only part that changes production, and only after approval.
+ExecStart=/usr/local/sbin/martha-ha serve
+RuntimeDirectory=martha
+RuntimeDirectoryMode=0755
+Restart=on-failure
+# On stop, a running staging test or deploy is allowed to finish.
+KillMode=mixed
+TimeoutStopSec=20min
+
+[Install]
+WantedBy=multi-user.target
