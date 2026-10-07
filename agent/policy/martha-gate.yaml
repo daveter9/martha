@@ -1,0 +1,29 @@
+# OpenShell network policy preset: the sandbox may reach martha-gate on the host, nothing
+# else of martha. Applied by agent/install-agent.sh with
+#   nemohermes <sandbox> policy add --from-file agent/policy/martha-gate.yaml --yes
+# Production HA (8123), staging (8124) and the database are not reachable from the sandbox;
+# martha-gate decides what the agent may do (DESIGN.md C16/C17).
+preset:
+  name: martha-gate
+  description: "martha-gate on the host (HA read access, proposals, staging)"
+network_policies:
+  martha-gate:
+    name: martha-gate
+    endpoints:
+      - host: host.openshell.internal
+        port: 8765
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
+          - allow: { method: PUT, path: "/staging/api/**" }
+          - allow: { method: PATCH, path: "/staging/api/**" }
+          - allow: { method: DELETE, path: "/staging/api/**" }
+    # The skill uses curl from Hermes' terminal tool; Hermes' own HTTP tools run in Python.
+    binaries:
+      - { path: /usr/bin/curl }
+      - { path: /usr/local/bin/curl }
+      - { path: /usr/local/bin/hermes }
+      - { path: /usr/bin/python3* }
+      - { path: /opt/hermes/.venv/bin/python }
