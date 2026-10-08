@@ -62,7 +62,7 @@ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
                 THEN state::double precision END
 $$;
 
--- --- Per minute (2 years) -----------------------------------------------------------
+-- --- Per minute (kept forever) --------------------------------------------------------
 -- Only numeric states. Use value_last for counters (state_class total/total_increasing,
 -- e.g. kWh) and value_avg for momentary values (state_class measurement, e.g. W, °C).
 -- The average is over samples: HA writes only on change, so it is not time-weighted.
@@ -96,7 +96,9 @@ BEGIN
     END IF;
 END $$;
 SELECT add_compression_policy('ltss_1m', compress_after => INTERVAL '30 days', if_not_exists => TRUE);
-SELECT add_retention_policy('ltss_1m', drop_after => INTERVAL '2 years', if_not_exists => TRUE);
+-- No retention: every minute is kept forever (choice of the user, 2026-10-08). Earlier
+-- installs had a 2-year policy; it is removed here.
+SELECT remove_retention_policy('ltss_1m', if_exists => TRUE);
 
 -- --- Per hour (kept forever) ------------------------------------------------------------
 -- Built on ltss_1m. value_avg is weighted by samples, so it equals the average over

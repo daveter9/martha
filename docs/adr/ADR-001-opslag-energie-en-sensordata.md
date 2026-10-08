@@ -93,3 +93,10 @@ Bij de implementatie zijn twee punten aangepast aan de offline-eis (C1/C1a in
   database weggefilterd, met een trigger op de tabel `ltss`.
 
 De details staan in DESIGN.md onder *Opslag van meetdata (ADR-001)*.
+
+## Aanvulling (8 okt 2026)
+**Minuten voor altijd.** De continuous aggregate `ltss_1m` heeft geen retentie meer (was 2 jaar).
+De gebruiker wil elke minuut van alle P1-meetwaarden voor altijd bewaren. Hij koos ervoor dat
+voor alle sensoren te doen, in plaats van een eigen aggregate voor alleen P1. Gecomprimeerd
+is dat naar schatting tientallen MB per jaar per twintig sensoren. De database groeit wel mee
+met elke nieuwe sensor. Ruisende sensoren sluit je uit met de exclude-lijst van LTSS.
