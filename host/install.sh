@@ -277,6 +277,8 @@ install -d -m 0755 "$STATE_DIR"
 install -d -m 0755 /usr/local/lib/martha
 install -m 0755 "$ROOT/host/gate/martha_ha.py" /usr/local/lib/martha/martha_ha.py
 ln -sf /usr/local/lib/martha/martha_ha.py /usr/local/sbin/martha-ha
+# P1 meter (DSMR) and its dashboard; run by hand after setup-gate (see readme.md).
+install -m 0755 "$ROOT/host/ha/setup_p1.py" /usr/local/lib/martha/setup_p1.py
 # Staging HA (started on demand by 'martha-ha staging') and its LAN forward on port 8124.
 install -m 0644 "$ROOT/host/gate/staging_proxy.py" /usr/local/lib/martha/staging_proxy.py
 install -m 0644 "$ROOT/host/martha-staging-proxy.service" /etc/systemd/system/martha-staging-proxy.service
