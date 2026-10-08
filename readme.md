@@ -319,6 +319,22 @@ sudo journalctl -u martha-ha -u martha-gate  # wat de daemon en de gate doen
 Haalt een rollback een helper of andere entity weg, dan blijft die als *niet beschikbaar*
 in *Instellingen → Entiteiten* staan. Verwijder hem daar.
 
+### P1-meter (slimme meter)
+
+De P1-kabel (USB) gaat in martha. Doe dit na `setup-gate`, want het script gebruikt het
+admin-token daarvan:
+
+```bash
+ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_p1.py
+```
+
+Het script maakt eerst een back-up. Daarna voegt het de DSMR-integratie toe (DSMR 5, op de enige
+USB-seriële adapter; een andere geef je op met `--port`) en zet het het update-interval op
+10 seconden (`--interval`). Ook zet het alle sensoren van de meter aan, en maakt het het dashboard
+**P1-meter** (`http://martha.local:8123/p1-meter`) met grafieken. Opnieuw draaien kan; het
+dashboard wordt dan opnieuw geschreven. LTSS slaat alle sensoren op, en `ltss_1m` houdt per
+minuut gemiddelde, minimum, maximum en laatste waarde voor altijd vast.
+
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).

@@ -165,7 +165,8 @@ HA leest en stuurt alle apparaten via zijn integraties. Recorder en LTSS schrijv
     indexnamen van LTSS, zodat de aggregates al bestaan voordat LTSS verbindt. Compressie na
     7 dagen, retentie 30 dagen. Een trigger haalt alleen-UI-attributen weg (`icon`,
     `entity_picture`, `options` enz.), omdat LTSS geen `ignore_attributes` kent.
-  - `ltss_1m` (2 jaar, compressie na 30 dagen) en `ltss_1h` (onbeperkt, gebouwd op
+  - `ltss_1m` (onbeperkt sinds 2026-10-08, keuze van de gebruiker; compressie na 30 dagen;
+    een oude retentie van 2 jaar haalt het script weg) en `ltss_1h` (onbeperkt, gebouwd op
     `ltss_1m`): alleen numerieke states, met `value_avg`, `value_min`, `value_max`,
     `value_last`, `samples`, `state_class` en `unit`. Tellers gebruiken `value_last`,
     momentane waarden `value_avg`. Het gemiddelde is per sample, niet tijdgewogen.
@@ -184,6 +185,38 @@ HA leest en stuurt alle apparaten via zijn integraties. Recorder en LTSS schrijv
     AND bucket > now() - INTERVAL '1 day' AND bucket < now()
   GROUP BY t ORDER BY t;
   ```
+
+### P1-meter (DSMR)
+De slimme meter is een Landis+Gyr E360 (DSMR 5.0, `/XMX5LGF…`). Hij stuurt elke seconde een
+telegram via een FTDI-P1-kabel (`/dev/ttyUSB0`). HA leest hem met de ingebouwde DSMR-integratie.
+Die wordt neergezet door `host/ha/setup_p1.py` (handmatig, als root, na `setup-gate`), via de
+config-flow-API en de websocket met het root-token:
+- **Update-interval van 10 s.** De meter stuurt elke seconde, maar elke seconde is te veel voor
+  Recorder en LTSS. Met 10 s heeft `ltss_1m` tot 6 samples per minuut voor gemiddelde, minimum
+  en maximum.
+- **Alle sensoren aan**, ook die HA standaard uitzet: spanning, stroom en vermogen per fase,
+  stroomuitvallen, spanningsdips en -pieken, en het tijdstip. Samen 17 sensoren.
+- **Herstart in plaats van reload.** Een optiewijziging en het aanzetten van entities plannen
+  allebei een reload van de integratie. Overlappende DSMR-reloads laten de oude entities staan
+  ("unique ID … already exists"), en die sensoren werken dan niet meer bij (gevonden op martha,
+  2026-10-08). Het script herstart HA daarom één keer, en alleen als er iets veranderde.
+- **Opslag** via LTSS (domein `sensor`). Per minuut staan ze voor altijd in `ltss_1m` (zie
+  *Opslag van meetdata*). Alleen numerieke states komen in de aggregates. Het actieve tarief
+  (`normal`/`low`) en het tijdstip zijn tekst, dus die staan alleen 30 dagen ruw in `ltss`.
+- **Niet beschikbaar in HA**: het tekstbericht (`0-0:96.13.0`), het storingslogboek
+  (`1-0:99.97.0`) en het tijdstip van de gasmeting. De equipment-ID's zijn de serienummers
+  van de devices. Teruglevering in kWh is `unknown` zolang de teller op 0 staat (DSMR-gedrag).
+- **Poort:** in de container bestaat `/dev/serial/by-id` niet (privileged maakt bij de start
+  een eigen `/dev`). Het script gebruikt daarom het `ttyUSB`-pad van de enige USB-seriële
+  adapter. *Bekend risico:* komt er een tweede USB-seriële stick bij (Zigbee), dan kan de
+  nummering wisselen. Dan is een vast pad nodig, bijvoorbeeld een udev-symlink plus een
+  mount van `/dev/serial`.
+- **Dashboard** `p1-meter` (storage-modus, dus in de config-repo via `.storage/lovelace.*`):
+  history-graphs (24 uur, uit de Recorder) en statistics-graphs (uur, dag en maand, uit de
+  long-term statistics). Het minuutdetail van langer dan 10 dagen geleden staat alleen in
+  TimescaleDB; HA zelf toont dat niet.
+- Staging kan de meter niet lezen (geen USB, internal netwerk). Op verzoek van de gebruiker
+  staat dit daarom direct in productie (2026-10-08).
 
 ### Agent (Hermes): HA configureren zonder schrijfrechten op productie
 Doel: een Hermes-agent (Nous Research) die HA echt configureert (automations, scripts,
@@ -335,7 +368,8 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   Terugvaloptie volgens ADR-001: `mqtt_statestream` → Telegraf → Timescale.
 - **ADR-001 staat op martha** (verse installatie, 2026-10-07): schema toegepast, de Recorder
   schrijft in PostgreSQL en LTSS in `ltss`; `ltss_1m` en `ltss_1h` en hun policies bestaan.
-  Nog niet bekeken: of de aggregates met echte sensordata kloppen.
+  Met echte P1-data (2026-10-08) vult `ltss_1m` zich per minuut met gemiddelde, min, max en
+  laatste waarde; `ltss_1h` is nog niet bekeken.
 - Attestatieproxy voor Phala: **uitgesteld** (keuze van de gebruiker, 2026-10-07; ADR-002,
   *Aanvulling 2026-10-07*). Opnieuw bekijken zodra teep of `@phala/aci-verifier` het ACI/1-formaat
   van `inference.phala.com` ondersteunt. Komt hij er, dan moet nog besloten worden waar hij
