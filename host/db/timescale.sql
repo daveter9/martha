@@ -121,3 +121,38 @@ WITH NO DATA;
 SELECT add_continuous_aggregate_policy('ltss_1h',
     start_offset => INTERVAL '7 days', end_offset => INTERVAL '1 hour',
     schedule_interval => INTERVAL '30 minutes', if_not_exists => TRUE);
+
+-- --- Counter use per minute ---------------------------------------------------------
+-- Use per minute of a counter (state_class total_increasing, e.g. gas in m³) over the
+-- last 'minutes' whole minutes: the reading at the end of each minute minus the one a
+-- minute earlier, with gaps filled by the previous reading. 'used' is NULL before the
+-- first stored reading. For the SQL sensor in packages/p1_gas.yaml, whose integration
+-- refuses queries that mention entity_id without the recorder's states_meta table.
+CREATE OR REPLACE FUNCTION ltss_counter_per_minute(entity text, minutes integer)
+RETURNS TABLE (minute timestamptz, reading double precision, used double precision)
+LANGUAGE sql STABLE AS $$
+    -- One extra minute before the window, so the first minute has a previous reading.
+    -- time_bucket_gapfill wants start and finish as plain expressions, not columns.
+    SELECT t, v, d FROM (
+        -- Rounded to the meter's 3 decimals: the difference of two doubles is noisy.
+        SELECT t, v, round((v - lag(v) OVER (ORDER BY t))::numeric, 3)::double precision AS d
+        FROM (
+            SELECT time_bucket_gapfill(INTERVAL '1 minute', bucket,
+                       start => date_trunc('minute', now()) - make_interval(mins => minutes + 1),
+                       finish => date_trunc('minute', now())) AS t,
+                   locf(last(value_last, bucket), treat_null_as_missing => true,
+                        prev => (SELECT p.value_last FROM ltss_1m p
+                                 WHERE p.entity_id = entity
+                                   AND p.bucket < date_trunc('minute', now())
+                                                  - make_interval(mins => minutes + 1)
+                                 ORDER BY p.bucket DESC LIMIT 1)) AS v
+            FROM ltss_1m
+            WHERE ltss_1m.entity_id = entity
+              AND bucket >= date_trunc('minute', now()) - make_interval(mins => minutes + 1)
+              AND bucket < date_trunc('minute', now())
+            GROUP BY 1
+        ) filled
+    ) deltas
+    WHERE t >= date_trunc('minute', now()) - make_interval(mins => minutes)
+    ORDER BY t;
+$$;
