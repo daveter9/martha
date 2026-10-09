@@ -377,7 +377,7 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
 - **De health-check mist fouten bij het opzetten van een platform.** "Error while setting up
-  sql platform" kwam niet door de health-check (gevonden op 2026-10-08). `FATAL_LOG` in
+  sql platform" kwam niet door de health-check (gevonden op 2026-10-09). `FATAL_LOG` in
   `martha_ha.py` herkent het patroon niet. Het toevoegen moet nog worden afgewogen: een
   integratie die tijdelijk een apparaat mist, logt hetzelfde en zou dan een rollback geven.
 - LTSS is een community-integratie zonder onderhoudsgarantie (laatste release 2024-12).
