@@ -151,6 +151,9 @@ def dashboard(ids):
     cards = [
         {"type": "grid", "columns": 2, "square": False, "cards": now},
         history("Vermogen (24 uur)", power),
+        # The meter reports gas every 5 minutes; HA's 5-minute statistics give the use
+        # per interval (kept as long as the recorder's purge_keep_days).
+        statistics("Gas per 5 minuten (24 uur)", gas, "5minute", 1, ["change"]),
         history("Vermogen per fase (24 uur)", phases),
         history("Spanning (24 uur)", voltage),
         history("Stroom (24 uur)", current),
