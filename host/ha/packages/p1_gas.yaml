@@ -1,0 +1,27 @@
+# Gas use per minute over the last 24 hours, as a markdown table for the P1 dashboard.
+# Deployed by host/ha/setup_p1.py as packages/p1_gas.yaml (through martha-ha, so it is in
+# the config repository); __GAS_ENTITY__ becomes the entity id of the gas meter reading.
+#
+# Reads ltss_1m (TimescaleDB) through the recorder's database; no db_url needed. Per
+# minute: the meter reading at the end of that minute minus the one a minute earlier
+# (ltss_counter_per_minute in host/db/timescale.sql). A DSMR 5 meter reports gas every
+# 5 minutes, so most minutes are 0 and the use of 5 minutes lands in one minute.
+#
+# The table is a ~33 KB attribute, so this sensor is excluded from the recorder and LTSS
+# (packages/martha_storage.yaml); it is derived from stored data anyway.
+
+sql:
+  - name: Gas per minuut (24 uur)
+    unique_id: p1_gas_per_minute_24h
+    icon: mdi:fire
+    unit_of_measurement: "m³"
+    column: total
+    # ltss_counter_per_minute: host/db/timescale.sql.
+    query: >-
+      SELECT round(sum(used)::numeric, 3) AS total,
+             string_agg(format('| %s | %s |',
+                               to_char(minute AT TIME ZONE 'Europe/Amsterdam', 'DD-MM HH24:MI'),
+                               coalesce(to_char(used, 'FM0.000'), '–')),
+                        E'\n' ORDER BY minute DESC) AS tabel
+      FROM ltss_counter_per_minute('__GAS_ENTITY__', 1440)
+      LIMIT 1;
