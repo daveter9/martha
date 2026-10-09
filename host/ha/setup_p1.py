@@ -12,10 +12,7 @@ Idempotent; each run:
   3. sets the update interval (seconds between states written to the recorder and LTSS);
   4. enables every sensor of the meter, including those HA disables by default
      (voltage, current, power per phase, power failures, sags and swells);
-  5. deploys packages/p1_gas.yaml (gas use per minute over 24 hours, a SQL sensor on
-     ltss_1m) through martha-ha, with check_config, backup and automatic rollback;
-  6. writes the dashboard 'P1-meter' (/p1-meter) with graphs of all those sensors and a
-     tab with the gas table.
+  5. writes the dashboard 'P1-meter' (/p1-meter) with graphs of all those sensors.
 
 Storage is not configured here: LTSS stores every sensor.* state, and ltss_1m keeps a
 row per minute forever (host/db/timescale.sql).
@@ -31,10 +28,6 @@ sys.path.insert(0, "/usr/local/lib/martha")
 import martha_ha as m  # noqa: E402
 
 DASHBOARD = "p1-meter"
-GAS_PACKAGE = "packages/p1_gas.yaml"
-GAS_TEMPLATE = "/usr/local/lib/martha/p1_gas.yaml"   # host/ha/packages/p1_gas.yaml
-GAS_TABLE = "sensor.gas_per_minuut_24_uur"           # from the name in p1_gas.yaml
-STORAGE = m.CONFIG + "/packages/martha_storage.yaml"
 DSMR_VERSION = "5"   # Landis+Gyr E360: DSMR 5.0 (1-3:0.2.8(50))
 
 
@@ -128,41 +121,6 @@ def by_key(ws, entry):
     return found
 
 
-def deploy_gas_table(gas_entity):
-    """Put packages/p1_gas.yaml in production through martha-ha (sync, check_config,
-    backup, restart, health check, automatic rollback)."""
-    with open(STORAGE) as f:
-        if f.read().count(GAS_TABLE) < 2:
-            raise m.Error(f"exclude {GAS_TABLE} from the recorder and LTSS in {STORAGE} first "
-                          "(see host/ha/packages/martha_storage.yaml)")
-    with open(GAS_TEMPLATE) as f:
-        content = f.read().replace("__GAS_ENTITY__", gas_entity)
-
-    def build(base):
-        with m.tempfile.TemporaryDirectory(dir=m.WORK) as tmp:
-            env = dict(os.environ, GIT_INDEX_FILE=os.path.join(tmp, "index"))
-            m.git("read-tree", base, env=env)
-            blob = m.git("hash-object", "-w", "--stdin", input=content).stdout.strip()
-            m.git("update-index", "--add", "--cacheinfo", f"100644,{blob},{GAS_PACKAGE}", env=env)
-            return m.git("write-tree", env=env).stdout.strip()
-
-    with m.locked(wait=True):
-        m.apply(build, "p1: gas use per minute (packages/p1_gas.yaml)")
-
-
-def gas_view(table):
-    """Markdown table; the frontend renders the ~1440 rows from the sensor's attribute."""
-    content = (
-        f"**Laatste 24 uur: {{{{ states('{table}') }}}} m³**\n\n"
-        "De meter geeft de gasstand elke 5 minuten door, dus het verbruik van die 5 minuten "
-        "staat in één minuut. Nieuwste minuut bovenaan; – betekent nog geen meetdata.\n\n"
-        "| Minuut | Verbruik (m³) |\n|:--|--:|\n"
-        f"{{{{ state_attr('{table}', 'tabel') }}}}"
-    )
-    return {"title": "Gas per minuut", "path": "gas", "icon": "mdi:fire",
-            "cards": [{"type": "markdown", "content": content}]}
-
-
 def dashboard(ids):
     """Lovelace config: only cards for sensors this meter actually has."""
     def pick(*keys):
@@ -208,10 +166,8 @@ def dashboard(ids):
     ]
     # A card without entities is an error in the frontend.
     cards = [c for c in cards if c.get("entities") or c.get("cards")]
-    views = [{"title": "P1-meter", "path": "p1", "icon": "mdi:meter-electric", "cards": cards}]
-    if gas:
-        views.append(gas_view(GAS_TABLE))
-    return {"title": "P1-meter", "views": views}
+    return {"title": "P1-meter", "views": [{"title": "P1-meter", "path": "p1",
+                                             "icon": "mdi:meter-electric", "cards": cards}]}
 
 
 def write_dashboard(ws, ids):
@@ -247,13 +203,7 @@ def main():
     ws = m.WebSocket(m.HA_URL, token)
     try:
         ids = by_key(ws, entry)
-    finally:
-        ws.close()
-    m.log(f"{len(ids)} sensors: " + ", ".join(sorted(ids.values())))
-    if "gas_meter_reading" in ids:
-        deploy_gas_table(ids["gas_meter_reading"])
-    ws = m.WebSocket(m.HA_URL, token)
-    try:
+        m.log(f"{len(ids)} sensors: " + ", ".join(sorted(ids.values())))
         write_dashboard(ws, ids)
     finally:
         ws.close()

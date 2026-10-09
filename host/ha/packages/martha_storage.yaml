@@ -8,10 +8,6 @@ recorder:
   db_url: !secret martha_db_url
   # Raw states for history graphs; long-term statistics (5 min/hour) are kept forever.
   purge_keep_days: 10
-  # Derived from the database itself, with a large attribute (packages/p1_gas.yaml).
-  exclude:
-    entities:
-      - sensor.gas_per_minuut_24_uur
 
 # Raw states to TimescaleDB (table ltss); retention and aggregates: host/db/timescale.sql.
 ltss:
@@ -26,7 +22,7 @@ ltss:
       - number
       - climate
       - water_heater
-  # Noisy entities that are not worth keeping, e.g. sensor.*_uptime (entity_globs).
-  exclude:
-    entities:
-      - sensor.gas_per_minuut_24_uur
+  # Example, for noisy entities that are not worth keeping:
+  # exclude:
+  #   entity_globs:
+  #     - sensor.*_uptime
