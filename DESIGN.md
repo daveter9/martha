@@ -215,6 +215,18 @@ config-flow-API en de websocket met het root-token:
   history-graphs (24 uur, uit de Recorder) en statistics-graphs (uur, dag en maand, uit de
   long-term statistics). Het minuutdetail van langer dan 10 dagen geleden staat alleen in
   TimescaleDB; HA zelf toont dat niet.
+- **Gas per minuut (24 uur):** een tabblad met een markdown-tabel van 1440 minuten. Ze komt
+  van de SQL-sensor `sensor.gas_per_minuut_24_uur` (`host/ha/packages/p1_gas.yaml`, via
+  `martha-ha` gedeployd, dus in de config-repo). Die leest via de Recorder-database de functie
+  `ltss_counter_per_minute(entity, minutes)` uit `timescale.sql`: de stand aan het eind van elke
+  minuut min die van de minuut ervoor, met gaten gevuld met de vorige stand (`locf`).
+  - De SQL-integratie weigert een query met `entity_id` die `states_meta` niet noemt. Daarom
+    staat de query in een functie in de database.
+  - De tabel is een attribuut van ±33 KB. Het staat boven HA's limiet van 16 KB en zou LTSS
+    elke 30 s 33 KB laten schrijven. De sensor is daarom uitgesloten in Recorder en LTSS
+    (`martha_storage.yaml`); `setup_p1.py` controleert dat eerst.
+  - De gasmeter geeft zijn stand elke 5 minuten door. Het verbruik van 5 minuten staat dus in één
+    minuut. Een fijnere resolutie bestaat niet.
 - Staging kan de meter niet lezen (geen USB, internal netwerk). Op verzoek van de gebruiker
   staat dit daarom direct in productie (2026-10-08).
 
@@ -364,6 +376,10 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 ## Open punten
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
+- **De health-check mist fouten bij het opzetten van een platform.** "Error while setting up
+  sql platform" kwam niet door de health-check (gevonden op 2026-10-08). `FATAL_LOG` in
+  `martha_ha.py` herkent het patroon niet. Het toevoegen moet nog worden afgewogen: een
+  integratie die tijdelijk een apparaat mist, logt hetzelfde en zou dan een rollback geven.
 - LTSS is een community-integratie zonder onderhoudsgarantie (laatste release 2024-12).
   Terugvaloptie volgens ADR-001: `mqtt_statestream` → Telegraf → Timescale.
 - **ADR-001 staat op martha** (verse installatie, 2026-10-07): schema toegepast, de Recorder

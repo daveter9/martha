@@ -331,7 +331,11 @@ ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_p1.py
 Het script maakt eerst een back-up. Daarna voegt het de DSMR-integratie toe (DSMR 5, op de enige
 USB-seriële adapter; een andere geef je op met `--port`) en zet het het update-interval op
 10 seconden (`--interval`). Ook zet het alle sensoren van de meter aan, en maakt het het dashboard
-**P1-meter** (`http://martha.local:8123/p1-meter`) met grafieken. Opnieuw draaien kan; het
+**P1-meter** (`http://martha.local:8123/p1-meter`) met grafieken. Een tweede tabblad, **Gas per
+minuut**, toont het gasverbruik per minuut over de laatste 24 uur. Die tabel gaat via
+`martha-ha` naar productie (`packages/p1_gas.yaml`) en vraagt een uitsluiting in
+`packages/martha_storage.yaml`. Een oudere installatie moet die uitsluiting zelf toevoegen;
+het script meldt dat. Opnieuw draaien kan; het
 dashboard wordt dan opnieuw geschreven. LTSS slaat alle sensoren op, en `ltss_1m` houdt per
 minuut gemiddelde, minimum, maximum en laatste waarde voor altijd vast.
 
