@@ -22,6 +22,9 @@ ltss:
       - number
       - climate
       - water_heater
+      # Helpers: the solar tariffs and settings keep their history (host/db/solar.sql).
+      - input_number
+      - input_datetime
   # Example, for noisy entities that are not worth keeping:
   # exclude:
   #   entity_globs:
