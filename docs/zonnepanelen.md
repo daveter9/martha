@@ -37,9 +37,9 @@ beantwoorden:
 - Bestaande meetopslag: LTSS → `ltss_1m` (per minuut, onbeperkt) en `ltss_1h` (zie *Opslag van
   meetdata* en *P1-meter* in [DESIGN.md](../DESIGN.md)).
 - C1a: HA mag internet gebruiken (prijzen, weersvoorspelling), maar moet zonder blijven werken.
-- **Omvormer:** Growatt (type nog onbekend). Growatt werkt standaard via de cloud; lokaal
-  uitlezen en sturen kan via Modbus (RS485, of de wifi-stick met andere firmware). Hoe dat
-  hier gaat, is nog open.
+- **Omvormer:** Growatt MIN 3000TL-XH (max. 3 kW AC, "battery-ready" voor een Growatt
+  ARK-batterij) met een ShineLAN-X-datalogger (LAN-kabel), die standaard naar de Growatt-cloud
+  stuurt.
 - **Energiecontract:** vast.
 
 ## Beslissingen
@@ -53,6 +53,137 @@ Genomen met de gebruiker op 2026-10-12.
 | Z3 | **Eén instelbare discontovoet** voor de NPV. | Een invoerwaarde in HA, geen scenario's per discontovoet. |
 | Z4 | **Het verbruiksprofiel is het complete huisprofiel**, uit P1 en opwek. | Geen metingen of standaardprofielen per apparaat. Doel 4 vergelijkt het overschot met het totale verbruik per minuut. |
 | Z5 | **Prijzen per kwartier (day-ahead) worden opgehaald en voor altijd bewaard**, ook met een vast contract. | Nodig om te vergelijken met een dynamisch contract (V1) en om negatieve prijzen te zien (V2). Zonder internet ontbreken ze en worden ze later bijgehaald (C1a). Het vaste contract blijft de basis voor de werkelijke kosten. |
+
+Ontwerpkeuzes voor de bouw in HA, genomen met de gebruiker op 2026-10-12 (uitwerking in
+*Ontwerp in HA* hieronder):
+
+| # | Beslissing | Afgewezen alternatieven |
+|---|---|---|
+| Z6 | **De Growatt wordt lokaal gelezen met Grott**, via de ShineLAN-X. | Modbus RS485: een kabel naar de omvormer, en hij botst met de RS485-meter van een latere Growatt-batterij. Growatt-cloud: alleen met internet (C1a). |
+| Z7 | **Tarieven en investeringsgegevens zijn helpers in HA**; LTSS bewaart elke wijziging. | Een tabel in de database (wijzigen via de repo). Een correctietabel ernaast. |
+| Z8 | **De rekenlaag is een tabel per minuut** (`solar_1m`). | Per kwartier (minder rijen, sluit aan op de prijzen). Alleen views (traag over jaren). |
+| Z9 | **Perioden via HA-statistieken**: SQL-sensoren geven lopende totalen, HA maakt er statistieken van. | Begin- en einddatum-helpers. |
+| Z10 | **Day-ahead-prijzen via de Nord Pool-integratie**, met een DB-trigger naar een permanente tabel. | EnergyZero. Een eigen ophaaljob op martha. |
+
+## Ontwerp in HA
+
+```
+ShineLAN-X ──> Grott (martha) ──> Growatt-cloud (als er internet is)
+                  │ webhook
+                  v
+Growatt-sensoren ─┐
+P1-sensoren ──────┼─> LTSS ─> ltss_1m ─┐
+helpers (Z7) ─────┘                    ├─ job ─> solar_1m ─> SQL-functies ─> SQL-sensoren
+Nord Pool (Z10) ────> LTSS ─> trigger ─> energy_price                              │
+                                                                                   v
+                          energiedashboard (kWh) + dashboard "Zonnepanelen" (HA-statistieken)
+```
+
+Zoals bij de P1-meter zet een script `host/ha/setup_solar.py` alles neer: packages via
+martha-ha (back-up, `check_config`, health-check, rollback), helpers en dashboards via de
+websocket. Het schema komt in `host/db/solar.sql`, idempotent, toegepast door `install.sh`
+na `timescale.sql`.
+
+### Growatt via Grott (Z6)
+- **Grott** (open source, Python) draait als systemd-service op martha (`martha-grott.service`,
+  eigen gebruiker), niet als container (C6). De broncode staat op versie vastgepind in de bundle
+  (C1); `download.ps1` haalt hem op.
+- **De ShineLAN-X** stuurt naar martha in plaats van naar `server.growatt.com` (in te stellen
+  in de webinterface van de stick). De stick kent geen `.local`, dus martha heeft een vast
+  IP-adres nodig (DHCP-reservering in de router). Grott stuurt de berichten door naar Growatt,
+  zodat de Growatt-app blijft werken.
+- **Naar HA zonder MQTT:** een Grott-extensie stuurt elke meting als JSON naar een webhook van
+  HA (`local_only`). In `packages/solar_growatt.yaml` vangen trigger-template-sensoren die op,
+  met `unique_id`, `device_class` en `state_class`: opbrengst totaal en vandaag (kWh), AC-vermogen
+  (W), spanning en stroom per string, temperatuur en status.
+- **Interval:** de stick stuurt standaard eens per 5 minuten; waar het kan, gaat dat naar 1
+  minuut.
+- **Opwek per minuut:** de Growatt-tellers hebben een resolutie van 0,1 kWh, en dat is te grof
+  per minuut (3 kW is 0,05 kWh per minuut). Daarom rekent `solar_1m` de opwek per minuut uit
+  het AC-vermogen, en schaalt hij elke dag zo dat de som klopt met de dagteller. Tussen twee
+  berichten wordt het vermogen lineair geïnterpoleerd.
+- **Sturen (doel 6)** kan alleen als Grott de cloud helemaal vervangt (servermodus). Dat
+  besluit valt pas in de laatste fase.
+
+### Helpers (Z7)
+Gemaakt door `setup_solar.py`; ze staan in `.storage` en daarmee in de config-repo. In de UI
+pas je ze aan wanneer er iets verandert. LTSS bewaart elke wijziging voor altijd; daarvoor
+komen `input_number` en `input_datetime` in de include van `martha_storage.yaml`. Rekenen
+gebeurt steeds met de waarde die op dat moment gold. Een tarief achteraf corrigeren kan dus
+niet: wijzig het op de dag dat het ingaat.
+
+- Tarieven (all-in, incl. btw, €/kWh): inkoop normaal, inkoop dal, terugleververgoeding,
+  terugleverkosten per kWh. Terugleverkosten per maand (€) als die vast zijn.
+- Investering: startdatum, investeringsbedrag, bijkomende kosten (totaal tot nu toe; ophogen
+  bij een nieuwe uitgave, LTSS legt vast wanneer).
+- Voorspelling: discontovoet (Z3), degradatie (%/jaar), levensduur panelen en omvormer,
+  vervangingskosten omvormer, prijsontwikkeling inkoop en teruglevering (%/jaar).
+- Simulatie: batterijcapaciteit (kWh), laad-/ontlaadvermogen (kW), rendement (%).
+
+### Rekenlaag `solar_1m` (Z8)
+- Een tabel (hypertable, compressie na 30 dagen, onbeperkt bewaard), gevuld door een
+  TimescaleDB-job (`add_job`) die elke 5 minuten de laatste uren opnieuw berekent (upsert),
+  zodat late metingen meetellen. `solar_recompute(van, tot)` rekent een periode opnieuw uit.
+- Per minuut: opwek, inkoop (normaal/dal), teruglevering, eigen gebruik (≥ 0), verbruik, het
+  actieve tarief (normaal/dal, van de P1-meter: die staat maar 30 dagen ruw in `ltss`, dus hij
+  wordt hier vastgelegd), de geldende tarieven, besparing (€), opbrengst teruglevering (€), de
+  day-ahead-prijs, en een vlag voor minuten met ontbrekende data.
+- Kostenformules: zie *Begrippen en formules*. Vaste terugleverkosten per maand worden niet
+  per minuut verdeeld, maar per maand afgetrokken.
+- Ontbreekt de Growatt (bijv. Grott stond stil), dan is de opwek onbekend. Zulke minuten
+  krijgen de vlag en tellen niet mee voor eigen gebruik. Inkoop en teruglevering blijven
+  gewoon kloppen.
+
+### Prijzen (Z10)
+- De Nord Pool-integratie (kern van HA, geen key). Een automation roept elke middag na
+  publicatie `nordpool.get_prices_for_date` aan voor morgen, en na het opstarten of na een
+  periode zonder internet ook voor de gemiste dagen. Het resultaat komt als attribuut op een
+  template-sensor (één dag per update).
+- LTSS schrijft die sensor naar `ltss`. Een trigger op `ltss` zet de prijzen per kwartier in
+  de permanente tabel `energy_price` (upsert), zodat ze ook na 30 dagen bewaard blijven. Het
+  grote attribuut gaat niet naar de Recorder.
+- Dit zijn kale marktprijzen. Een dynamisch contract rekent er een opslag, energiebelasting en
+  btw bij. Die komen als helpers bij de vergelijking (V1).
+
+### Tonen (Z9)
+- **Energiedashboard** van HA: net (inkoop normaal/dal, teruglevering) en zonnepanelen, met de
+  tarief-helpers als prijs. Dat geeft de kWh-overzichten van doel 1 en 2, eigengebruik en
+  zelfvoorzienendheid, met de eigen datumkiezer.
+- **SQL-sensoren** met lopende totalen uit `solar_1m` (eigen gebruik in kWh, besparing in €,
+  opbrengst teruglevering in €, terugleverkosten, teruglevering tegen een negatieve prijs).
+  HA maakt er statistieken van. Bedragen zijn `monetary` met `state_class: total`. Ze lopen tot
+  ~5 minuten achter.
+- **Dashboard "Zonnepanelen"** (storage-modus, door `setup_solar.py`): statistics-kaarten per
+  dag, week, maand en jaar, gekoppeld aan de datumkiezer van het energiedashboard voor een
+  eigen periode (`energy_date_selection`, bij de bouw te verifiëren). Verder kaarten voor de
+  investering (doel 3), de voorspelling (doel 5), het overschot per uur van de dag (doel 4) en de
+  batterijsimulatie.
+- **Berekeningen** als SQL-functies, getoond via SQL-sensoren: `solar_payback()` (doel 3),
+  `solar_npv()` en `solar_irr()` (doel 5; IRR met bisectie), en `solar_simulate_battery(...)`
+  (doel 4).
+
+### Voorspelling (doel 5)
+- **Korte termijn:** de Forecast.Solar-integratie (kern van HA, internet, C1a). LTSS bewaart
+  de voorspelling, zodat je hem later kunt vergelijken met de werkelijke opwek.
+- **Lange termijn:** een vaste referentie per maand van PVGIS voor deze installatie, één keer
+  opgehaald en als tabel in `solar.sql`. Zodra er een maand gemeten is, telt de meting.
+
+### Staging
+Staging heeft geen echte database en geen Grott. SQL-sensoren geven daar fouten bij het
+opzetten, en de health-check ziet die niet (zie *Open punten* in DESIGN.md). Wat in staging
+wel getest wordt: of de packages laden, plus de webhook-sensoren met een testbericht.
+
+### Fasen
+Elke fase wordt apart getest op martha en gecommit.
+
+| Fase | Inhoud | Klaar als |
+|---|---|---|
+| 1 | Grott, webhook-sensoren, vast IP, energiedashboard (kWh) | Opwek komt binnen in HA en `ltss_1m`, ook als de internetverbinding eruit is. De Growatt-app werkt nog. |
+| 2 | Helpers, `solar_1m` en de job, lopende totalen, dashboard voor doel 1 en 2 | Dag- en maandsommen kloppen met P1 en de Growatt-dagteller. |
+| 3 | Nord Pool, `energy_price`, vergelijking met een dynamisch contract (V1), teruglevering tegen een negatieve prijs (V2) | De prijzen van een dag na een internetstoring worden bijgehaald. |
+| 4 | Investering (doel 3), PVGIS-referentie, Forecast.Solar, NPV en IRR (doel 5) | De terugverdientijd en IRR zijn met de hand nagerekend. |
+| 5 | Overschot per uur, batterijsimulatie (doel 4) | Een simulatie met de hand nagerekend voor één dag. |
+| 6 | Sturen (doel 6), alleen als fase 3 laat zien dat het loont | Nog te ontwerpen. |
 
 ## Begrippen en formules
 
@@ -170,11 +301,17 @@ De omvormer beperken of uitzetten wanneer terugleveren geld kost (V2).
 
 ## Open vragen
 
-1. **Growatt:** welk type? Wordt hij lokaal uitgelezen via Modbus RS485 (kabel naar martha) of
-   via de wifi-stick met andere firmware? Dat bepaalt of de opwek zonder internet binnenkomt
-   (C1a) en of doel 6 kan.
-2. **Tarieven van het vaste contract:** de prijs per kWh (normaal/dal), de
+1. **Tarieven van het vaste contract:** de prijs per kWh (normaal/dal), de
    terugleververgoeding, de terugleverkosten (per kWh of vast) en de einddatum van het contract.
-3. **Installatie:** het investeringsbedrag, het aantal panelen, het vermogen in Wp, de
+2. **Installatie:** het investeringsbedrag, het aantal panelen, het vermogen in Wp, de
    oriëntatie en de hellingshoek. Vult de gebruiker later in; het wordt instelbare invoer.
-4. **Bron van de day-ahead-prijzen** (Z5): welke integratie werkt in HA zonder HACS (C21)?
+
+Na te gaan bij de bouw:
+
+3. **Grott zonder internet:** blijft Grott meetwaarden doorgeven als het doorsturen naar
+   Growatt mislukt? Test dit in fase 1.
+4. **Interval van de ShineLAN-X:** kan hij naar 1 minuut, en hoe?
+5. **Afhankelijkheden van Grott:** kan hij draaien met alleen de stdlib (zonder MQTT), of zijn
+   er `.deb`'s nodig uit de offline mirror?
+6. **`energy_date_selection`** op de statistics-kaarten van de huidige HA-versie.
+7. **Nord Pool:** hoe ver terug kan `get_prices_for_date` prijzen ophalen?

@@ -223,6 +223,15 @@ config-flow-API en de websocket met het root-token:
 - Staging kan de meter niet lezen (geen USB, internal netwerk). Op verzoek van de gebruiker
   staat dit daarom direct in productie (2026-10-08).
 
+### Zonnepanelen
+Eisen, beslissingen (Z1–Z10) en ontwerp: [docs/zonnepanelen.md](docs/zonnepanelen.md). In het
+kort: een Growatt MIN 3000TL-XH met ShineLAN-X, lokaal gelezen door **Grott als systemd-service**
+op martha. Dat is geen container, dus C6 blijft gelden; de broncode gaat mee in de bundle (C1).
+Grott stuurt naar een webhook van HA. Alle berekeningen zitten in TimescaleDB
+(`host/db/solar.sql`, tabel `solar_1m` per minuut) en worden in HA getoond via SQL-sensoren en
+HA-statistieken. Tarieven en investering zijn helpers in HA, en LTSS bewaart hun historie.
+Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.local` kent.
+
 ### Agent (Hermes): HA configureren zonder schrijfrechten op productie
 Doel: een Hermes-agent (Nous Research) die HA echt configureert (automations, scripts,
 helpers, dashboards, packages), via Telegram met de gebruiker praat en zelf verbetertips stuurt.
@@ -367,9 +376,9 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   voor en legt hij uit, de gebruiker voegt ze toe in de UI.
 
 ## Open punten
-- **Zonnepanelen** (vanaf 2026-10-23): eisen en beslissingen Z1–Z5 in
-  [docs/zonnepanelen.md](docs/zonnepanelen.md). Open: het type Growatt en hoe hij lokaal wordt
-  uitgelezen, de contracttarieven, de gegevens van de installatie en de bron van de prijzen.
+- **Zonnepanelen** (vanaf 2026-10-23): ontwerp staat (zie *Zonnepanelen*), bouw in 6 fasen.
+  Open: de contracttarieven en de gegevens van de installatie; bij de bouw na te gaan: Grott
+  zonder internet en het interval van de ShineLAN-X.
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
 - **De health-check mist fouten bij het opzetten van een platform.** "Error while setting up
