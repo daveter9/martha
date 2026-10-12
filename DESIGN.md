@@ -377,7 +377,9 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 
 ## Open punten
 - **Zonnepanelen** (vanaf 2026-10-23): ontwerp staat (zie *Zonnepanelen*), bouw in 6 fasen,
-  met de omvormer zo laat mogelijk (fase 5).
+  met de omvormer zo laat mogelijk (fase 5). Fase 1–4 zijn gebouwd (2026-10-12): het
+  databaseschema is getest op martha (teruggedraaid), maar `setup_solar.py` is nog niet
+  gedraaid.
   Open: de contracttarieven en de gegevens van de installatie; bij de bouw na te gaan: Grott
   zonder internet en het interval van de ShineLAN-X.
 - Offline OS-updates (zie hierboven).

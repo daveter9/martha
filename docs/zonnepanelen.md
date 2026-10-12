@@ -164,9 +164,43 @@ niet: wijzig het op de dag dat het ingaat.
 
 ### Voorspelling (doel 5)
 - **Korte termijn:** de Forecast.Solar-integratie (kern van HA, internet, C1a). LTSS bewaart
-  de voorspelling, zodat je hem later kunt vergelijken met de werkelijke opwek.
-- **Lange termijn:** een vaste referentie per maand van PVGIS voor deze installatie, één keer
-  opgehaald en als tabel in `solar.sql`. Zodra er een maand gemeten is, telt de meting.
+  de voorspelling, zodat je hem later kunt vergelijken met de werkelijke opwek. *Nog niet
+  gebouwd:* hij heeft oriëntatie, hellingshoek en kWp nodig (open vraag 2).
+- **Lange termijn:** de verwachte opwek per jaar uit de offerte (helper), met degradatie per
+  jaar. Zodra er een jaar aan opwek gemeten is, telt de meting. *Gewijzigd bij de bouw
+  (2026-10-12):* eerst was dit een PVGIS-referentie per maand, maar daarvoor zijn locatie en
+  oriëntatie nodig, en de prognose rekent per jaar, dus de offerte volstaat.
+
+### Zoals gebouwd (fase 1–4, 2026-10-12)
+- **Bestanden:** `host/db/solar.sql` (schema, functies, jobs), `host/ha/packages/solar.yaml`
+  (SQL-sensoren), `host/ha/packages/solar_prices.yaml` (Nord Pool-automation en prijssensor),
+  `host/ha/setup_solar.py` (uitrol). Uitrollen: zie *Zonnepanelen* in de readme.
+- **Rollen:** `solar_entity` koppelt de P1-sensoren aan hun rol. Tarief 1 is dal, tarief 2
+  normaal (Nederlandse DSMR).
+- **Helpers en historie:** de trigger `solar_capture` op `ltss` bewaart elke *wijziging* van
+  `input_number.solar_*` en `input_datetime.solar_*` in `solar_setting`; dezelfde waarde na een
+  herstart telt niet als wijziging. Een waarde geldt vanaf het moment van wijzigen, behalve de
+  eerste wijziging na de startdatum: die geldt vanaf de startdatum. Zo kun je de tarieven
+  een paar dagen na de start invullen.
+- **Jobs:** `solar_job` (elke 5 minuten) rekent de minuten sinds de vorige run en altijd de
+  laatste 6 uur opnieuw uit, plus de dagen die daarbij horen in `solar_1d`. `solar_results_job`
+  (elk uur) draait de batterijsimulatie over de laatste 365 dagen en maakt de tabel met het
+  overschot per uur. SQL-sensoren pollen elke 30 seconden en lezen daarom alleen lichte
+  functies of opgeslagen resultaten.
+- **Vaste terugleverkosten per maand** worden over de dagen van die maand verdeeld
+  (`cost_export_fixed`).
+- **Dynamisch contract (V1)**, een aanname die nog te controleren is bij een echte offerte:
+  inkoop = (day-ahead + opslag + energiebelasting) × (1 + btw), teruglevering = (day-ahead −
+  opslag) × (1 + btw). De vergelijking telt alleen minuten met een day-ahead-prijs, en geen vaste
+  kosten per maand.
+- **Energiedashboard:** niet door het script ingesteld (de opslag van de energie-instellingen
+  is in HA 2026 van formaat veranderd); met de hand, zie de readme.
+- **Getest (2026-10-12):** het schema plus alle functies op martha, op echte P1-data, in een
+  transactie die werd teruggedraaid (`ROLLBACK`). De inkoop per dag uit `solar_1d` klopt met
+  het verschil van de P1-tellers (5,874 tegen 5,873 kWh op 2026-10-11). De NPV bij de berekende
+  IRR is 0. De packages slagen voor `check_config` in een wegwerpcontainer.
+- **Nog niet getest:** `setup_solar.py` zelf (die vraagt `sudo` op martha), de automation van
+  Nord Pool, en het dashboard.
 
 ### Staging
 Staging heeft geen echte database en geen Grott. SQL-sensoren geven daar fouten bij het
@@ -313,8 +347,9 @@ De omvormer beperken of uitzetten wanneer terugleveren geld kost (V2).
 
 1. **Tarieven van het vaste contract:** de prijs per kWh (normaal/dal), de
    terugleververgoeding, de terugleverkosten (per kWh of vast) en de einddatum van het contract.
-2. **Installatie:** het investeringsbedrag, het aantal panelen, het vermogen in Wp, de
-   oriëntatie en de hellingshoek. Vult de gebruiker later in; het wordt instelbare invoer.
+2. **Installatie:** het investeringsbedrag, de verwachte opwek per jaar, het aantal panelen,
+   het vermogen in Wp, de oriëntatie en de hellingshoek. Bedrag en opwek vult de gebruiker in
+   als helper; de rest is nodig voor Forecast.Solar.
 
 Na te gaan bij de bouw:
 
@@ -323,5 +358,8 @@ Na te gaan bij de bouw:
 4. **Interval van de ShineLAN-X:** kan hij naar 1 minuut, en hoe?
 5. **Afhankelijkheden van Grott:** kan hij draaien met alleen de stdlib (zonder MQTT), of zijn
    er `.deb`'s nodig uit de offline mirror?
-6. **`energy_date_selection`** op de statistics-kaarten van de huidige HA-versie.
-7. **Nord Pool:** hoe ver terug kan `get_prices_for_date` prijzen ophalen?
+6. ~~`energy_date_selection` op de statistics-kaarten~~: bestaat in HA 2026.9 voor
+   `statistics-graph` en `statistic` (nagekeken in de frontend, 2026-10-12).
+7. **Nord Pool:** hoe ver terug kan `get_prices_for_date` prijzen ophalen? De automation
+   vraagt de laatste 31 dagen op; een dag zonder antwoord wordt elk half uur opnieuw geprobeerd.
+   De service geeft EUR/MWh (de sensoren van de integratie delen zelf door 1000).

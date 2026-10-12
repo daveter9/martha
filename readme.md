@@ -335,6 +335,38 @@ USB-seriële adapter; een andere geef je op met `--port`) en zet het het update-
 dashboard wordt dan opnieuw geschreven. LTSS slaat alle sensoren op, en `ltss_1m` houdt per
 minuut gemiddelde, minimum, maximum en laatste waarde voor altijd vast.
 
+### Zonnepanelen
+
+Eisen en ontwerp: [docs/zonnepanelen.md](docs/zonnepanelen.md). Doe dit na de P1-meter en na
+een `install.sh` met deze versie van de repo (die zet het databaseschema `host/db/solar.sql` neer):
+
+```bash
+ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_solar.py
+```
+
+Het script maakt eerst een back-up. Daarna:
+- legt het vast welke P1-sensoren de berekening gebruikt;
+- zet het `input_number` en `input_datetime` in de LTSS-include van
+  `packages/martha_storage.yaml`, zodat de helpers hun historie houden;
+- voegt het de Nord Pool-integratie toe (NL, EUR; dat vraagt internet, anders volgt een
+  waarschuwing en draai je het later opnieuw);
+- rolt het `packages/solar.yaml` en `packages/solar_prices.yaml` uit via martha-ha;
+- maakt het de helpers aan, met startdatum 2026-10-23 (`--start`);
+- maakt het het dashboard **Zonnepanelen** (`http://martha.local:8123/zonnepanelen`).
+
+Opnieuw draaien kan: bestaande helpers en hun waarden blijven staan, het dashboard wordt
+opnieuw geschreven.
+
+Daarna, met de hand:
+1. Vul onder **Zonnepanelen → Instellingen** de tarieven van je contract in, en onder
+   **Investering** het investeringsbedrag en de verwachte opwek per jaar (uit de offerte).
+   De eerste wijziging na de startdatum geldt vanaf de startdatum; latere wijzigingen gelden
+   vanaf het moment dat je ze maakt. Wijzig een tarief dus op de dag dat het ingaat.
+2. Stel het **energiedashboard** in (*Instellingen → Dashboards → Energie*): bij het
+   elektriciteitsnet de P1-tellers voor verbruik (tarief 1 en 2) met als prijs
+   `input_number.solar_import_low` en `input_number.solar_import_normal`, en voor teruglevering
+   (tarief 1 en 2) met `input_number.solar_feed_in`.
+
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).
