@@ -35,62 +35,59 @@ Getest op martha (2026-10-07):
 Stand bij de gebruiker:
 - Productie en staging zijn geonboard (opnieuw, na de herinstallatie van 2026-10-07). De
   Companion-app is gekoppeld en `setup-gate` is gedraaid.
-- De Telegram-bot is aangemaakt en gestart. Het token staat in de wachtwoordmanager van de
+- De Telegram-bot is aangemaakt, gestart en sinds 2026-10-12 aan Hermes gekoppeld. Het token staat in de wachtwoordmanager van de
   gebruiker; het user-ID kent de gebruiker en komt niet in de repo.
 - **Provider:** Phala (ADR-002). De API-key is aangemaakt en werkt (getest op 2026-10-07, zie
   `docs/phala.md`). De key staat niet in de repo; de gebruiker levert hem aan bij `install-agent.sh`.
 
-## Fase 4: bezig (onderbroken op 2026-10-07)
+## Fase 4: bezig (stand 2026-10-12)
 
-**Al gedaan op martha** (met de hand, als `david`):
+**Op martha** (als `david`):
 - `david` zit in de groep `docker` en heeft lingering aan; `binutils` was er al.
-- NemoClaw **v0.0.124** (de `lkg`-tag) is geïnstalleerd met Hermes, zonder vragen: zie de
-  `export`-regel in `agent/install-agent.sh`. Het resultaat:
-  - Node 22 via nvm, `nemohermes` en `openshell` (0.0.116) in `~/.local/bin`;
-  - de gateway als user-service `nemoclaw-openshell-gateway.service` (poort 8080);
-  - de log staat in `~/nemoclaw-install.log`.
-- **Sandbox `hermes`** draait:
+- NemoClaw **v0.0.124** (de `lkg`-tag) met Hermes: Node 22 via nvm, `nemohermes` en
+  `openshell` (0.0.116) in `~/.local/bin`, de gateway als user-service
+  `nemoclaw-openshell-gateway.service` (poort 8080).
+- `/etc/docker/daemon.json` heeft `"dns": ["192.168.178.1"]` (C23, 2026-10-12).
+- **Sandbox `hermes`**, opnieuw aangemaakt op 2026-10-12 (zie *Gevonden*). De log van die
+  onboarding staat in `~/nemoclaw-reonboard.log`. De oude werkruimte staat in
+  `~/backups/hermes-sandbox-2026-10-12`; er stond niets in dat nodig is.
   - model `z-ai/glm-5.3-flash` via de provider `custom` op `https://inference.phala.com/v1`;
-  - de Phala-key staat in de credentials van OpenShell, niet in de sandbox;
-  - policy-tier `restricted`, met alleen het preset `pypi`;
-  - de onboarding meldt "gateway, dashboard, and inference route are healthy";
-  - dashboard op `127.0.0.1:18789` en de OpenAI-API op `127.0.0.1:8642`, alleen lokaal
-    (bereikbaar via een SSH-tunnel).
-- Telegram is nog **niet** toegevoegd.
+    de Phala-key staat in de credentials van OpenShell, niet in de sandbox;
+  - policy-tier `restricted`, met de presets `pypi`, `telegram` en `martha-gate`;
+  - skill `martha-ha` geïnstalleerd; het gate-token staat in `/sandbox/.martha/gate-token` (0600);
+  - dashboard op `127.0.0.1:18789` en de OpenAI-API op `127.0.0.1:8642`, alleen lokaal.
+
+**Getest vanuit de sandbox (2026-10-12):**
+- de gate geeft 401 zonder token en 200 met token (`/ha/states`);
+- `martha.local:8123` en `host.openshell.internal:8124` worden geweigerd
+  ("not allowed by any policy");
+- Hermes pollt `api.telegram.org` (`getUpdates`) en de policy laat dat toe.
 
 **Gevonden:**
 - martha heeft 30 GB RAM en 8 GB swap; extra swap is niet nodig.
 - De cgroupns-fix in `daemon.json` hoeft niet meer (zie DESIGN.md).
 - `nemoclaw.sh` via `curl | bash … </dev/null` doet niets, omdat bash het script dan van
   `/dev/null` leest. Download het eerst naar een bestand.
+- `policy add --from-file` en `skill install` werken zoals in het script. `exec` geeft geen
+  stdin door; het token gaat daarom met `upload` via een tijdelijk bestand.
+- `channels add telegram` registreert het kanaal, maar heeft een `rebuild` nodig. Eenvoudiger:
+  de onboarding met `TELEGRAM_BOT_TOKEN` en `TELEGRAM_ALLOWED_IDS` in de omgeving zet Telegram
+  meteen aan. Zo doet `install-agent.sh` het ook.
+- **DNS in containers werkte niet** (C23); daardoor faalde de rebuild. Na de fix in
+  `daemon.json` en de herstart van Docker stond de sandbox op `Error`, en daar kwam hij niet
+  meer uit (DESIGN.md, *Agent (Hermes)*). Hersteld met `destroy --no-cleanup-gateway` en een
+  verse `nemohermes onboard --non-interactive` met de omgeving uit `install-agent.sh`.
 
-**Concepten in de repo, nog niet getest:**
-- `agent/install-agent.sh`: legt de stappen vast. Het geheel is nog niet gedraaid; vooral
-  `sg docker`, `skill install`, `policy add --from-file` en `exec` moeten nog worden nagelopen.
-- `agent/policy/martha-gate.yaml`: de sandbox mag alleen naar `host.openshell.internal:8765`.
-  Na te gaan:
-  - werkt `host.openshell.internal` voor een dienst op de host met gewoon HTTP?
-  - kloppen de binary-paden van curl en python in de sandbox? Zie `openshell term` bij een
-    geblokkeerd verzoek.
-- `agent/skills/martha-ha/SKILL.md`: hoe Hermes de gate gebruikt. Het token verwacht hij in
-  `~/.martha/gate-token` in de sandbox.
+**Nog niet getest:**
+- `install-agent.sh` als geheel; vooral `sg docker`, de DNS-check en het installer-deel.
+- Of de sandbox een reboot van martha overleeft (open punt in DESIGN.md).
 
-**Volgende stappen** (op martha, als `david`; eerst `export PATH="$HOME/.local/bin:$PATH"`):
-1. `nemohermes hermes policy add --from-file agent/policy/martha-gate.yaml --dry-run`, en
-   daarna met `--yes`. Kopieer `agent/` eerst naar martha.
-2. `nemohermes hermes skill install agent/skills/martha-ha`.
-3. Zet het gate-token in de sandbox. Zoek uit hoe (`nemohermes help`; `exec` of upload).
-   Het token is `AGENT_TOKEN` uit `/etc/martha/gate.env`.
-4. Test vanuit de sandbox (`nemohermes hermes connect`):
-   `curl -H "Authorization: Bearer …" http://host.openshell.internal:8765/ha/states`.
-   Controleer ook dat `martha.local:8123` vanuit de sandbox **niet** bereikbaar is.
-5. Telegram toevoegen met `TELEGRAM_BOT_TOKEN` en `TELEGRAM_ALLOWED_IDS` in de omgeving, dan
-   `nemohermes hermes channels add telegram`.
-6. End-to-end: in Telegram een kleine wijziging vragen, bijvoorbeeld een helper. Daarna volgt
+**Volgende stappen:**
+1. End-to-end: in Telegram een kleine wijziging vragen, bijvoorbeeld een helper. Daarna volgt
    een voorstel, een staging-test, de melding op de telefoon, Toepassen, en het resultaat.
-7. `install-agent.sh` bijwerken naar wat echt werkte, de gidsen aanvullen (`agent/README.md`,
-   `docs/phala.md` stap 7), en committen.
-8. Uitzoeken of `"provider": {"aci_verified": true, "zdr": true}` mee kan (`docs/phala.md`,
+2. Reboot-test van martha.
+3. De gidsen aanvullen (`agent/README.md`, `docs/phala.md` stap 7).
+4. Uitzoeken of `"provider": {"aci_verified": true, "zdr": true}` mee kan (`docs/phala.md`,
    stap 7). Niet blokkerend: Phala dwingt de verificatie al af.
 
 ## Daarna

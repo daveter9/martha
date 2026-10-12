@@ -32,6 +32,7 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C20 | Prompts van de agent gaan **alleen naar een attested TEE-endpoint, nooit via een router**. | Phala direct op `inference.phala.com` of `tee.redpill.ai`, nooit `api.redpill.ai` of OpenRouter (zie [ADR-002](docs/adr/ADR-002-inference-provider.md)). Voorlopig zonder lokale attestatieproxy: de gateway dwingt de verificatie van de model-enclave af (getest), en attestatie en receipts worden periodiek met de hand gecontroleerd (ADR-002, *Aanvulling 2026-10-07*). |
 | C21 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
 | C22 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
+| C23 | **Docker-containers hebben een IPv4-DNS-server nodig die antwoordt.** | Docker geeft containers alleen de IPv4-nameservers van de host mee, zonder terugval op IPv6. Op martha gaf DHCP `192.168.178.10` op, en dat apparaat was offline: de host merkte niets (systemd-resolved viel terug op de IPv6-DNS van de router), maar HA en de sandbox-build hadden geen DNS. Fix: `/etc/docker/daemon.json` met `"dns": ["192.168.178.1"]` (de router, keuze van de gebruiker, 2026-10-12). `install-agent.sh` test DNS in een container en zet anders de default gateway als DNS. |
 
 ## Architectuurbeslissingen
 
@@ -250,6 +251,18 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   als systemd-user-service). `david` zit daarvoor in de groep `docker` (≈ root) en heeft
   lingering aan, zodat de gateway na een reboot start. De agent zelf zit in de sandbox en
   heeft geen Docker-toegang.
+- **Telegram** (getest op martha, 2026-10-12): `install-agent.sh` geeft `TELEGRAM_BOT_TOKEN` en
+  `TELEGRAM_ALLOWED_IDS` mee aan de onboarding. Die zet het preset `telegram` aan: de sandbox mag
+  alleen naar `api.telegram.org/bot<token>/**`, met het token als placeholder die de gateway
+  invult. Hermes haalt berichten op met long polling (`getUpdates`), dus er is geen inkomende
+  poort of webhook nodig. Het preset staat in groepen alleen @mentions toe; de bot kan niet in
+  groepen (`/setjoingroups`), dus in de praktijk werkt alleen een DM vanaf een toegestaan ID.
+- **De sandbox overleeft geen herstart van Docker.** De container heeft restart-policy `no`; na
+  `systemctl restart docker` zet OpenShell (0.0.116) hem op `Error`, en daaruit komt hij niet
+  terug met `start`, `stop`, `recover`, `rebuild` of `doctor --fix` (2026-10-12). Herstel:
+  de werkruimte veiligstellen met `docker cp <container>:/sandbox`, daarna
+  `nemohermes hermes destroy --yes --no-cleanup-gateway` en `install-agent.sh` opnieuw.
+  `snapshot create` en de back-up van onboard falen in `Error`. Docker dus niet zomaar herstarten.
 - **Inference:** GLM 5.3 Flash (`z-ai/glm-5.3-flash`) rechtstreeks bij Phala Confidential AI,
   voorlopig zonder lokale attestatieproxy (ADR-002, *Aanvulling 2026-10-07*). In NemoClaw is
   dat de provider `custom` met `NEMOCLAW_ENDPOINT_URL`. Beslissing en onderbouwing in
@@ -372,6 +385,9 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   uitgelezen, de contracttarieven, de gegevens van de installatie en de bron van de prijzen.
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
+- **Komt de sandbox terug na een reboot van martha?** Nog niet getest. NemoClaw meldt
+  "lifecycle metadata for … reboot", maar na een herstart van Docker bleef de sandbox op `Error`
+  staan (zie *Agent (Hermes)*).
 - **De health-check mist fouten bij het opzetten van een platform.** "Error while setting up
   sql platform" (bij de eerdere gastabel) kwam niet door de health-check (gevonden op 2026-10-09). `FATAL_LOG` in
   `martha_ha.py` herkent het patroon niet. Het toevoegen moet nog worden afgewogen: een
