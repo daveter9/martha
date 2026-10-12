@@ -376,7 +376,8 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   voor en legt hij uit, de gebruiker voegt ze toe in de UI.
 
 ## Open punten
-- **Zonnepanelen** (vanaf 2026-10-23): ontwerp staat (zie *Zonnepanelen*), bouw in 6 fasen.
+- **Zonnepanelen** (vanaf 2026-10-23): ontwerp staat (zie *Zonnepanelen*), bouw in 6 fasen,
+  met de omvormer zo laat mogelijk (fase 5).
   Open: de contracttarieven en de gegevens van de installatie; bij de bouw na te gaan: Grott
   zonder internet en het interval van de ShineLAN-X.
 - Offline OS-updates (zie hierboven).

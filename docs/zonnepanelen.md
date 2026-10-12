@@ -174,16 +174,26 @@ opzetten, en de health-check ziet die niet (zie *Open punten* in DESIGN.md). Wat
 wel getest wordt: of de packages laden, plus de webhook-sensoren met een testbericht.
 
 ### Fasen
-Elke fase wordt apart getest op martha en gecommit.
+Elke fase wordt apart getest op martha en gecommit. **Alles met de omvormer komt zo laat
+mogelijk** (keuze van de gebruiker, 2026-10-12). Dat kan, omdat de P1-meter al veel ziet:
+teruglevering is het overschot, en inkoop plus teruglevering zijn genoeg voor doel 2, voor de
+batterijsimulatie (doel 4) en voor de vergelijking van contracten (V1). Alleen eigen gebruik en
+opwek (doel 1, en het deel van doel 3 en 5 dat daarop rust) hebben de omvormer nodig.
 
-| Fase | Inhoud | Klaar als |
-|---|---|---|
-| 1 | Grott, webhook-sensoren, vast IP, energiedashboard (kWh) | Opwek komt binnen in HA en `ltss_1m`, ook als de internetverbinding eruit is. De Growatt-app werkt nog. |
-| 2 | Helpers, `solar_1m` en de job, lopende totalen, dashboard voor doel 1 en 2 | Dag- en maandsommen kloppen met P1 en de Growatt-dagteller. |
-| 3 | Nord Pool, `energy_price`, vergelijking met een dynamisch contract (V1), teruglevering tegen een negatieve prijs (V2) | De prijzen van een dag na een internetstoring worden bijgehaald. |
-| 4 | Investering (doel 3), PVGIS-referentie, Forecast.Solar, NPV en IRR (doel 5) | De terugverdientijd en IRR zijn met de hand nagerekend. |
-| 5 | Overschot per uur, batterijsimulatie (doel 4) | Een simulatie met de hand nagerekend voor één dag. |
-| 6 | Sturen (doel 6), alleen als fase 3 laat zien dat het loont | Nog te ontwerpen. |
+| Fase | Inhoud | Omvormer nodig | Klaar als |
+|---|---|---|---|
+| 1 | **Prijzen:** Nord Pool, de automation met bijhalen, de trigger naar `energy_price` | nee | De prijzen worden elke dag bewaard, en de prijzen van een gemiste dag worden na een internetstoring bijgehaald. |
+| 2 | **Rekenlaag op P1:** helpers voor tarieven, `solar_1m` en de job (opwek nog leeg), lopende totalen, energiedashboard (net), dashboard voor doel 2 (teruglevering, terugleverkosten, teruglevering tegen een negatieve prijs) en V1 | nee | Dag- en maandsommen van inkoop en teruglevering kloppen met de P1-tellers. |
+| 3 | **Overschot en simulatie (doel 4):** overschot per uur van de dag, `solar_simulate_battery` | nee | Een simulatie is voor één dag met de hand nagerekend. |
+| 4 | **Investering en voorspelling (doel 3 en 5):** helpers, PVGIS-referentie, Forecast.Solar, `solar_payback`, NPV en IRR. Tot fase 5 rekent de voorspelling met een aangenomen eigengebruik %. | nee | Terugverdientijd en IRR zijn met de hand nagerekend. |
+| 5 | **Omvormer:** vast IP, Grott, webhook-sensoren, opwek en eigen gebruik in `solar_1m`, doel 1, zonnepanelen in het energiedashboard | ja | Opwek komt binnen in HA en `ltss_1m`, ook als de internetverbinding eruit is. De Growatt-app werkt nog. Dagsommen kloppen met de Growatt-dagteller. |
+| 6 | **Sturen (doel 6)**, alleen als fase 2 laat zien dat het loont | ja | Nog te ontwerpen. |
+
+**Gevolg:** tot fase 5 staat de opwek alleen in de Growatt-cloud, niet op
+martha. Voor die periode is het eigen gebruik op martha onbekend. Inkoop en teruglevering
+worden wel volledig gemeten. *Optioneel in fase 5:* de opwek van die periode bijhalen uit een
+export van het Growatt-portaal (per 5 minuten of per dag), en `solar_recompute` over die periode
+draaien.
 
 ## Begrippen en formules
 
@@ -309,7 +319,7 @@ De omvormer beperken of uitzetten wanneer terugleveren geld kost (V2).
 Na te gaan bij de bouw:
 
 3. **Grott zonder internet:** blijft Grott meetwaarden doorgeven als het doorsturen naar
-   Growatt mislukt? Test dit in fase 1.
+   Growatt mislukt? Test dit in fase 5.
 4. **Interval van de ShineLAN-X:** kan hij naar 1 minuut, en hoe?
 5. **Afhankelijkheden van Grott:** kan hij draaien met alleen de stdlib (zonder MQTT), of zijn
    er `.deb`'s nodig uit de offline mirror?
