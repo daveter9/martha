@@ -367,8 +367,9 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   voor en legt hij uit, de gebruiker voegt ze toe in de UI.
 
 ## Open punten
-- **Zonnepanelen** (vanaf 2026-10-23): eisen in [docs/zonnepanelen.md](docs/zonnepanelen.md),
-  nog in bewerking met de gebruiker.
+- **Zonnepanelen** (vanaf 2026-10-23): eisen en beslissingen Z1–Z5 in
+  [docs/zonnepanelen.md](docs/zonnepanelen.md). Open: het type Growatt en hoe hij lokaal wordt
+  uitgelezen, de contracttarieven, de gegevens van de installatie en de bron van de prijzen.
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
 - **De health-check mist fouten bij het opzetten van een platform.** "Error while setting up

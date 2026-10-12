@@ -1,6 +1,6 @@
 # Zonnepanelen: eisen
 
-Status: **concept**, in bewerking met de gebruiker (gestart 2026-10-12). De panelen worden
+Status: **concept**; eerste ronde vragen beantwoord op 2026-10-12. De panelen worden
 geplaatst op vrijdag 2026-10-23.
 
 ## Waarom
@@ -37,6 +37,22 @@ beantwoorden:
 - Bestaande meetopslag: LTSS → `ltss_1m` (per minuut, onbeperkt) en `ltss_1h` (zie *Opslag van
   meetdata* en *P1-meter* in [DESIGN.md](../DESIGN.md)).
 - C1a: HA mag internet gebruiken (prijzen, weersvoorspelling), maar moet zonder blijven werken.
+- **Omvormer:** Growatt (type nog onbekend). Growatt werkt standaard via de cloud; lokaal
+  uitlezen en sturen kan via Modbus (RS485, of de wifi-stick met andere firmware). Hoe dat
+  hier gaat, is nog open.
+- **Energiecontract:** vast.
+
+## Beslissingen
+
+Genomen met de gebruiker op 2026-10-12.
+
+| # | Beslissing | Gevolg |
+|---|---|---|
+| Z1 | **Alle overzichten en berekeningen staan in HA.** | Het energiedashboard van HA plus eigen dashboards. Wat HA niet zelf kan (eigen gebruik in €, NPV, IRR, simulaties) wordt een SQL-functie in TimescaleDB, getoond via SQL-sensoren. Geen extra container (C6 blijft) en geen analyse buiten HA. |
+| Z2 | **Vanaf de start rekenen met het regime van 2027**, ook in nov–dec 2026. | Eén rekenmodel. De opbrengst van die twee maanden komt iets te laag uit; in de winter wordt weinig opgewekt, dus dat is geaccepteerd. |
+| Z3 | **Eén instelbare discontovoet** voor de NPV. | Een invoerwaarde in HA, geen scenario's per discontovoet. |
+| Z4 | **Het verbruiksprofiel is het complete huisprofiel**, uit P1 en opwek. | Geen metingen of standaardprofielen per apparaat. Doel 4 vergelijkt het overschot met het totale verbruik per minuut. |
+| Z5 | **Prijzen per kwartier (day-ahead) worden opgehaald en voor altijd bewaard**, ook met een vast contract. | Nodig om te vergelijken met een dynamisch contract (V1) en om negatieve prijzen te zien (V2). Zonder internet ontbreken ze en worden ze later bijgehaald (C1a). Het vaste contract blijft de basis voor de werkelijke kosten. |
 
 ## Begrippen en formules
 
@@ -77,8 +93,7 @@ Hoeveel betaal ik minder doordat ik zelf opgewekte stroom direct verbruik?
   opwek, inkoop, teruglevering, eigen gebruik, verbruik, besparing (€), plus eigengebruik % en
   zelfvoorzienend %.
 - **Saldering tot 2027:** in november en december 2026 levert een teruggeleverde kWh nog
-  evenveel op als een zelf gebruikte. *Open:* die twee maanden apart rekenen, of vanaf de start
-  het regime van 2027 hanteren?
+  evenveel op als een zelf gebruikte. Toch rekenen we meteen met het regime van 2027 (Z2).
 
 ### Doel 2: opbrengst van teruglevering
 Wat levert teruglevering netto op, en wat kost het?
@@ -90,7 +105,8 @@ Wat levert teruglevering netto op, en wat kost het?
   **negatieve** of nul-prijs (input voor V2).
 - **Vergelijken (V1):** dezelfde teruglevering en inkoop doorrekenen met de tarieven van andere
   contracten (vast, variabel, dynamisch). Daarvoor moeten de ruwe kWh per tijdvak bewaard
-  blijven, los van de prijs van het huidige contract.
+  blijven, los van de prijs van het huidige contract. Voor een dynamisch contract worden de
+  day-ahead-prijzen per kwartier gebruikt (Z5).
 
 ### Doel 3: de investering bijhouden
 Was het tot nu toe een verstandig besluit?
@@ -106,25 +122,28 @@ Was het tot nu toe een verstandig besluit?
     stond het andersom). Zolang break-even nog niet bereikt is, komt deze uit doel 5.
 
 ### Doel 4: ruimte op de panelen (overschot) benutten
-Hoeveel overschot is er, en wanneer? Zodat ik per apparaat kan bepalen of het goedkoper is om
-het op opwek te laten draaien.
+Hoeveel overschot is er, en wanneer? Zodat ik kan bepalen of verbruik goedkoper wordt als ik het
+naar momenten met opwek verschuif, en of een extra apparaat zou lonen.
 
 Een vaste "kWh-prijs van zonnestroom" bestaat niet: het overschot is er alleen op bepaalde
 momenten en in bepaalde hoeveelheden. Daarom vergelijk je het **gemeten overschot** met het
-**verbruiksprofiel** van een apparaat.
+**gemeten verbruik**, per minuut.
 
-- **Meten:** teruglevering per minuut is het overschot (wat er beschikbaar was).
-- **Verbruiksprofielen:** vermogen per minuut van een run van een apparaat (wasmachine,
-  vaatwasser, droger) of van een toekomstig apparaat (warmtepomp, EV-laden, batterij).
-  *Open:* zelf meten (slimme stekker) of standaardprofielen?
-- **Berekend:** voor een profiel op starttijd *t* de kosten = per minuut
-  `min(profiel, overschot) × terugleververgoeding + max(0, profiel − overschot) × inkoopprijs`.
-  Daarmee: de goedkoopste starttijd, en de besparing ten opzichte van starten op een vast
-  moment.
-- **Simulatie over historie** (V8, V9, V10): een warmtepomp, EV of batterij doorrekenen op de
-  echte minuutdata van een heel jaar. Voor de batterij: overschot opslaan en later inzetten in
-  plaats van inkopen, met capaciteit, laad-/ontlaadvermogen en rendement als parameters.
-- Eigengebruik % (doel 1) laat zien hoeveel ruimte er in totaal nog is.
+- **Meten:** het overschot is de teruglevering per minuut. Het verbruiksprofiel is het complete
+  huisverbruik per minuut (`inkoop + eigen_gebruik`), uit P1 en opwek (Z4). Er komen geen
+  metingen per apparaat.
+- **Tonen:** het overschot per uur van de dag (gemiddeld per maand), zodat je ziet op welke
+  uren er ruimte is, en het eigengebruik % (doel 1) als maat voor de ruimte die in totaal nog
+  over is.
+- **Simulatie over historie** (V8, V9, V10): een extra verbruiker of batterij doorrekenen op de
+  echte minuutdata.
+  - Batterij: het overschot opslaan en later inzetten in plaats van inkopen, met capaciteit,
+    laad-/ontlaadvermogen en rendement als parameters.
+  - Warmtepomp en EV: een extra verbruik bovenop het gemeten huisprofiel, waarvan zoveel
+    mogelijk wordt gedekt uit het overschot. Hoe dat extra verbruik eruitziet (vast blok,
+    verdeeld over de dag, afhankelijk van de temperatuur), is een aanname per simulatie.
+  - Per minuut: `min(extra, overschot) × terugleververgoeding + max(0, extra − overschot) ×
+    inkoopprijs` = de kosten van het extra verbruik.
 
 ### Doel 5: voorspellen hoe de investering verloopt
 De investering vergelijkbaar maken met andere (sparen, aflossen, beleggen).
@@ -133,7 +152,7 @@ De investering vergelijkbaar maken met andere (sparen, aflossen, beleggen).
   uit de gemeten opwek per maand, plus een referentie (bijv. PVGIS) zolang er nog geen jaar
   aan data is.
 - **Aannames, expliciet instelbaar:** degradatie van de panelen (%/jaar), levensduur panelen
-  en omvormer, prijsscenario's voor inkoop en teruglevering, discontovoet, en het
+  en omvormer, prijsscenario's voor inkoop en teruglevering, één discontovoet (Z3), en het
   eigengebruik % (gemeten, of aangepast voor een toekomstige warmtepomp/EV/batterij).
 - **Berekend:** verwachte kasstroom per jaar, NPV, IRR en verwachte terugverdientijd, per
   scenario. Zodra er meer meetdata is, vervangen gemeten jaren de voorspelde.
@@ -141,27 +160,21 @@ De investering vergelijkbaar maken met andere (sparen, aflossen, beleggen).
 ### Doel 6: sturen (nieuw, uit de titel "aansturen en monitoren")
 De omvormer beperken of uitzetten wanneer terugleveren geld kost (V2).
 
-- Voorwaarde: de omvormer is lokaal te sturen (vermogen beperken of uitzetten).
+- Voorwaarde: de Growatt is lokaal te sturen (vermogen beperken of uitzetten).
 - Regel, bijvoorbeeld: terugleververgoeding − terugleverkosten < 0 in het huidige tijdvak →
-  teruglevering beperken tot 0 W (het eigen verbruik blijft gedekt).
+  teruglevering beperken tot 0 W (het eigen verbruik blijft gedekt). Met een vast contract
+  gebeurt dat alleen als de terugleverkosten hoger zijn dan de vergoeding. De day-ahead-prijzen
+  (Z5) laten zien wat sturen met een dynamisch contract zou opleveren.
 - Eerst alleen meten wat het had opgeleverd (doel 2, teruglevering tegen negatieve prijs);
   sturen pas als dat de moeite waard blijkt.
 
 ## Open vragen
 
-1. **Omvormer:** welk merk en type? Heeft hij een lokale API (Modbus TCP, lokale HTTP)? Dat
-   bepaalt of opwek per minuut zonder internet beschikbaar is (C1a) en of doel 6 kan.
-2. **Energiecontract:** vast, variabel of dynamisch? Welke terugleververgoeding en
-   terugleverkosten? Loopt het contract na 2027 door?
-3. **Prijzen:** bij een dynamisch contract komen de prijzen per kwartier van internet. Is het
-   acceptabel dat ze ontbreken zolang er geen internet is, mits ze daarna worden bijgehaald en
-   voor altijd in de database worden bewaard?
-4. **Waar komen de overzichten?** Het energiedashboard van HA dekt een deel van doel 1 en 2
-   (inclusief eigen periode). Formules als NPV, IRR en simulaties niet. Opties: eigen
-   HA-dashboards op SQL-sensoren, een aparte analyse vanaf de pc via de SSH-tunnel
-   (notebook/spreadsheet), of een extra container (in strijd met C6, dus een nieuwe beslissing).
-5. **Saldering nov–dec 2026:** apart rekenen of meteen het regime van 2027?
-6. **Investering:** bedrag, aantal panelen, Wp, oriëntatie en hellingshoek (voor de
-   opwekvoorspelling).
-7. **Discontovoet** voor NPV: de spaarrente, de hypotheekrente, of iets anders?
-8. **Verbruiksprofielen:** zelf meten met slimme stekkers of standaardprofielen?
+1. **Growatt:** welk type? Wordt hij lokaal uitgelezen via Modbus RS485 (kabel naar martha) of
+   via de wifi-stick met andere firmware? Dat bepaalt of de opwek zonder internet binnenkomt
+   (C1a) en of doel 6 kan.
+2. **Tarieven van het vaste contract:** de prijs per kWh (normaal/dal), de
+   terugleververgoeding, de terugleverkosten (per kWh of vast) en de einddatum van het contract.
+3. **Installatie:** het investeringsbedrag, het aantal panelen, het vermogen in Wp, de
+   oriëntatie en de hellingshoek. Vult de gebruiker later in; het wordt instelbare invoer.
+4. **Bron van de day-ahead-prijzen** (Z5): welke integratie werkt in HA zonder HACS (C21)?
