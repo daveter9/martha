@@ -35,6 +35,20 @@ fi
 sudo loginctl enable-linger "$USER"
 command -v strings >/dev/null || sudo apt-get install -y binutils
 
+# Docker hands containers only the host's IPv4 DNS servers. When those do not answer (the host
+# itself may still resolve via IPv6), the sandbox build fails its container-DNS preflight; point
+# Docker at the router instead (DESIGN.md, C23). Restarting Docker stops a running sandbox.
+if ! sg docker -c "docker run --rm busybox nslookup -timeout=3 github.com" >/dev/null 2>&1; then
+    gw="$(ip -4 route show default | awk '{print $3; exit}')"
+    [ ! -e /etc/docker/daemon.json ] ||
+        die "container DNS fails; add \"dns\": [\"$gw\"] to /etc/docker/daemon.json yourself"
+    log "container DNS fails; pointing Docker at the router ($gw), Home Assistant restarts"
+    printf '{\n  "dns": ["%s"]\n}\n' "$gw" | sudo tee /etc/docker/daemon.json >/dev/null
+    sudo systemctl restart docker
+    sg docker -c "docker run --rm busybox nslookup -timeout=3 github.com" >/dev/null 2>&1 ||
+        die "container DNS still fails via $gw"
+fi
+
 # --- 2. Secrets (never stored here) ----------------------------------------------------------
 if [ -z "${COMPATIBLE_API_KEY:-}" ]; then
     read -rsp "Phala API key (docs/phala.md, step 2): " COMPATIBLE_API_KEY; echo
@@ -74,8 +88,15 @@ nh policy add --from-file "$HERE/policy/martha-gate.yaml" --yes
 log "installing the martha-ha skill"
 nh skill install "$HERE/skills/martha-ha"
 log "handing the agent its martha-gate token"
-sudo sed -n 's/^AGENT_TOKEN=//p' /etc/martha/gate.env |
-    sg docker -c "nemohermes $SANDBOX exec -- sh -c 'umask 077; mkdir -p ~/.martha && cat > ~/.martha/gate-token'"
+# 'exec' does not forward stdin, so the token goes through a private temporary file.
+tokdir="$(mktemp -d)"
+trap 'rm -f "$installer"; rm -rf "$tokdir"' EXIT
+(umask 077; sudo sed -n 's/^AGENT_TOKEN=//p' /etc/martha/gate.env > "$tokdir/gate-token")
+[ -s "$tokdir/gate-token" ] || die "no AGENT_TOKEN in /etc/martha/gate.env"
+nh exec --no-tty -- mkdir -p /sandbox/.martha
+nh upload "$tokdir/gate-token" /sandbox/.martha/
+rm -rf "$tokdir"
+nh exec --no-tty -- chmod 600 /sandbox/.martha/gate-token
 
 nh status
 log "done: talk to your bot in Telegram"
