@@ -1,0 +1,177 @@
+# Solar panels: results of the calculation layer in TimescaleDB (docs/zonnepanelen.md).
+# Deployed by host/ha/setup_solar.py as packages/solar.yaml (through martha-ha, so it is in
+# the config repository). All functions and tables: host/db/solar.sql.
+#
+# The SQL sensors read the recorder's database (no db_url) and poll every 30 seconds, so
+# they only read stored results or cheap functions. The running totals (state_class total)
+# become long-term statistics in HA; the dashboard 'Zonnepanelen' shows their change per
+# day, week, month, year or a chosen period. They lag up to ~5 minutes (solar_job).
+# Totals that need the inverter (self-use) stay 'unknown' until phase 5.
+
+sql:
+  # --- Running totals since the start (doel 1 and 2) -------------------------------------
+  - name: Zonnepanelen eigen gebruik
+    unique_id: solar_total_self_use
+    icon: mdi:solar-power-variant
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    query: SELECT round(self_use::numeric, 3) AS v FROM solar_totals() LIMIT 1;
+
+  - name: Zonnepanelen besparing eigen gebruik
+    unique_id: solar_total_saving_self
+    icon: mdi:piggy-bank-outline
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(saving_self::numeric, 4) AS v FROM solar_totals() LIMIT 1;
+
+  - name: Zonnepanelen opbrengst teruglevering
+    unique_id: solar_total_revenue_export
+    icon: mdi:transmission-tower-export
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(revenue_export::numeric, 4) AS v FROM solar_totals() LIMIT 1;
+
+  - name: Zonnepanelen terugleverkosten
+    unique_id: solar_total_cost_export
+    icon: mdi:cash-minus
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cost_export::numeric, 4) AS v FROM solar_totals() LIMIT 1;
+
+  - name: Zonnepanelen teruglevering bij negatieve prijs
+    unique_id: solar_total_export_negative
+    icon: mdi:cash-remove
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    query: SELECT round(export_negative::numeric, 3) AS v FROM solar_totals() LIMIT 1;
+
+  - name: Zonnepanelen netto opbrengst
+    unique_id: solar_total_benefit
+    icon: mdi:cash-plus
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(benefit::numeric, 4) AS v FROM solar_totals() LIMIT 1;
+
+  # --- Contract comparison (V1), over the minutes with a day-ahead price -------------------
+  - name: Zonnepanelen kosten huidig contract
+    unique_id: solar_total_cmp_fixed
+    icon: mdi:file-sign
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cmp_cost_fixed::numeric, 4) AS v FROM solar_totals() LIMIT 1;
+
+  - name: Zonnepanelen kosten dynamisch contract
+    unique_id: solar_total_cmp_dynamic
+    icon: mdi:chart-bell-curve
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cmp_cost_dynamic::numeric, 4) AS v FROM solar_totals() LIMIT 1;
+
+  # --- Ratios over the last 365 days (doel 1) --------------------------------------------
+  - name: Zonnepanelen eigengebruik
+    unique_id: solar_self_use_pct
+    icon: mdi:percent
+    unit_of_measurement: "%"
+    state_class: measurement
+    column: v
+    query: SELECT round(self_use_pct::numeric, 1) AS v, pv_days FROM solar_self_use_ratio() LIMIT 1;
+
+  - name: Zonnepanelen zelfvoorzienend
+    unique_id: solar_self_sufficiency_pct
+    icon: mdi:home-lightning-bolt-outline
+    unit_of_measurement: "%"
+    state_class: measurement
+    column: v
+    query: SELECT round(self_sufficiency_pct::numeric, 1) AS v, pv_days FROM solar_self_use_ratio() LIMIT 1;
+
+  # --- Investment (doel 3) ---------------------------------------------------------------
+  - name: Zonnepanelen terugverdiend
+    unique_id: solar_payback_ratio
+    icon: mdi:scale-balance
+    unit_of_measurement: "%"
+    column: v
+    query: >-
+      SELECT round(ratio_pct::numeric, 2) AS v,
+             round(invested::numeric, 2) AS geinvesteerd,
+             round(earned::numeric, 2) AS opgeleverd
+      FROM solar_payback() LIMIT 1;
+
+  - name: Zonnepanelen break-even
+    unique_id: solar_break_even
+    icon: mdi:calendar-check
+    column: v
+    query: >-
+      SELECT to_char(break_even, 'YYYY-MM-DD') AS v,
+             CASE WHEN estimated THEN 'verwacht' ELSE 'bereikt' END AS soort
+      FROM solar_payback() LIMIT 1;
+
+  # --- Forecast (doel 5) -----------------------------------------------------------------
+  - name: Zonnepanelen NPV
+    unique_id: solar_npv
+    icon: mdi:finance
+    unit_of_measurement: EUR
+    column: v
+    query: SELECT round(solar_npv()::numeric, 0) AS v LIMIT 1;
+
+  - name: Zonnepanelen IRR
+    unique_id: solar_irr
+    icon: mdi:percent-outline
+    unit_of_measurement: "%"
+    column: v
+    query: SELECT round((100 * solar_irr())::numeric, 2) AS v LIMIT 1;
+
+  - name: Zonnepanelen terugverdientijd
+    unique_id: solar_payback_years
+    icon: mdi:timer-sand
+    unit_of_measurement: jaar
+    column: v
+    query: SELECT round(solar_payback_years()::numeric, 1) AS v LIMIT 1;
+
+  - name: Zonnepanelen prognose
+    unique_id: solar_forecast_table
+    icon: mdi:table
+    column: v
+    # The state is the number of years; the markdown table is an attribute for the dashboard.
+    query: >-
+      SELECT count(*) - 1 AS v,
+             E'| Jaar | Opwek (kWh) | Kasstroom (€) | Cumulatief (€) | Contant (€) |\n|---|---|---|---|---|\n'
+             || string_agg(format('| %s | %s | %s | %s | %s |', year,
+                                  round(production::numeric), round(cashflow::numeric),
+                                  round(cumulative::numeric), round(discounted::numeric)),
+                           E'\n' ORDER BY year) AS tabel
+      FROM solar_forecast() LIMIT 1;
+
+  # --- Surplus and battery (doel 4), computed hourly by solar_results_job -----------------
+  - name: Zonnepanelen batterij besparing
+    unique_id: solar_battery_saving
+    icon: mdi:home-battery-outline
+    unit_of_measurement: EUR
+    column: v
+    query: >-
+      SELECT round(value::numeric, 2) AS v, detail AS toelichting, updated AS berekend
+      FROM solar_result WHERE key = 'battery_saving_per_year' LIMIT 1;
+
+  - name: Zonnepanelen overschot per uur
+    unique_id: solar_surplus_per_hour
+    icon: mdi:sun-clock
+    column: v
+    query: >-
+      SELECT to_char(updated AT TIME ZONE 'Europe/Amsterdam', 'YYYY-MM-DD HH24:MI') AS v,
+             detail AS tabel
+      FROM solar_result WHERE key = 'surplus_per_hour' LIMIT 1;

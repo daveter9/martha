@@ -1,0 +1,90 @@
+# Day-ahead prices (Nord Pool, area NL) kept forever in the database (docs/zonnepanelen.md, Z10).
+# Deployed by host/ha/setup_solar.py as packages/solar_prices.yaml (through martha-ha, so it
+# is in the config repository). The Nord Pool integration itself is a config entry, added by
+# the same script.
+#
+# Flow: the SQL sensor lists the local days of the last 31 days (and tomorrow after 13:30)
+# without a full set of prices. The automation fetches each of them with
+# nordpool.get_prices_for_date and fires an event; the template sensor puts the prices of
+# that day in its attributes. LTSS writes the sensor to the table ltss, where the trigger
+# solar_capture copies the prices to energy_price (host/db/solar.sql). Without internet the
+# fetch fails and the days stay missing until it works again.
+
+sql:
+  - name: Day-ahead-prijzen ontbrekend
+    unique_id: solar_day_ahead_missing
+    icon: mdi:cash-clock
+    column: missing
+    # solar_price_missing_dates: host/db/solar.sql.
+    query: >-
+      SELECT count(*) AS missing,
+             coalesce(string_agg(d::text, ',' ORDER BY d), '') AS dates
+      FROM solar_price_missing_dates('NL') AS d
+      LIMIT 1;
+
+template:
+  - triggers:
+      - trigger: event
+        event_type: martha_day_ahead_prices
+    sensor:
+      - name: Day-ahead-prijzen
+        unique_id: solar_day_ahead_prices
+        default_entity_id: sensor.solar_day_ahead_prices
+        icon: mdi:cash-clock
+        state: "{{ trigger.event.data.date }}"
+        attributes:
+          # The database trigger recognises the prices by this attribute.
+          martha_day_ahead: "{{ true }}"
+          area: "{{ trigger.event.data.area }}"
+          # [{start, end, price}], price in EUR/MWh.
+          prices: "{{ trigger.event.data.prices }}"
+
+automation:
+  - id: solar_day_ahead_prices
+    alias: Day-ahead-prijzen ophalen
+    description: >-
+      Haalt de day-ahead-prijzen op van de dagen die nog niet in de database staan
+      (packages/solar_prices.yaml).
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: template
+        value_template: "{{ integration_entities('nordpool') | count > 0 }}"
+    actions:
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.day_ahead_prijzen_ontbrekend
+      - variables:
+          entry: "{{ integration_entities('nordpool') | map('config_entry_id') | select | first }}"
+          dates: >-
+            {{ ((state_attr('sensor.day_ahead_prijzen_ontbrekend', 'dates') or '') | string)
+               .replace(' ', '').split(',') | select | list }}
+      - repeat:
+          for_each: "{{ dates }}"
+          sequence:
+            - action: nordpool.get_prices_for_date
+              data:
+                config_entry: "{{ entry }}"
+                date: "{{ repeat.item }}"
+                areas: NL
+                currency: EUR
+              response_variable: result
+              continue_on_error: true
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ result is defined and result is mapping
+                       and (result.NL | default([]) | count) > 0 }}
+              then:
+                - event: martha_day_ahead_prices
+                  event_data:
+                    date: "{{ repeat.item }}"
+                    area: NL
+                    prices: "{{ result.NL }}"
+            - delay:
+                seconds: 2

@@ -176,6 +176,11 @@ log "applying database schema (host/db/timescale.sql)"
 docker exec -i -e PGPASSWORD="$db_pw" -e PGOPTIONS='-c client_min_messages=warning' timescaledb \
     psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U homeassistant -d homeassistant \
     <"$ROOT/host/db/timescale.sql" >/dev/null
+# Solar panels: prices, helper history and the calculation layer (docs/zonnepanelen.md).
+log "applying database schema (host/db/solar.sql)"
+docker exec -i -e PGPASSWORD="$db_pw" -e PGOPTIONS='-c client_min_messages=warning' timescaledb \
+    psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U homeassistant -d homeassistant \
+    <"$ROOT/host/db/solar.sql" >/dev/null
 
 # --- 5. Home Assistant configuration ------------------------------------------------
 # A fresh install gets HA's own default configuration, written here because HA only
@@ -279,6 +284,11 @@ install -m 0755 "$ROOT/host/gate/martha_ha.py" /usr/local/lib/martha/martha_ha.p
 ln -sf /usr/local/lib/martha/martha_ha.py /usr/local/sbin/martha-ha
 # P1 meter (DSMR) and its dashboard; run by hand after setup-gate (see readme.md).
 install -m 0755 "$ROOT/host/ha/setup_p1.py" /usr/local/lib/martha/setup_p1.py
+# Solar panels (prices, calculations, helpers, dashboard); run by hand after setup_p1.
+install -m 0755 "$ROOT/host/ha/setup_solar.py" /usr/local/lib/martha/setup_solar.py
+install -d -m 0755 /usr/local/lib/martha/solar
+install -m 0644 "$ROOT/host/ha/packages/solar.yaml" "$ROOT/host/ha/packages/solar_prices.yaml" \
+    /usr/local/lib/martha/solar/
 # Staging HA (started on demand by 'martha-ha staging') and its LAN forward on port 8124.
 install -m 0644 "$ROOT/host/gate/staging_proxy.py" /usr/local/lib/martha/staging_proxy.py
 install -m 0644 "$ROOT/host/martha-staging-proxy.service" /etc/systemd/system/martha-staging-proxy.service
