@@ -32,6 +32,7 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C20 | Prompts van de agent gaan **alleen naar een attested TEE-endpoint, nooit via een router**. | Phala direct op `inference.phala.com` of `tee.redpill.ai`, nooit `api.redpill.ai` of OpenRouter (zie [ADR-002](docs/adr/ADR-002-inference-provider.md)). Voorlopig zonder lokale attestatieproxy: de gateway dwingt de verificatie van de model-enclave af (getest), en attestatie en receipts worden periodiek met de hand gecontroleerd (ADR-002, *Aanvulling 2026-10-07*). |
 | C21 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
 | C22 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
+| C23 | **De repo is publiek: code van anderen zonder licentie komt er niet in.** | Zo'n code (nu: Grott) haalt `download.ps1` alleen naar de lokale bundle, en staat in `.gitignore`. Code met een licentie (LTSS, MIT) mag wel in de repo. |
 
 ## Architectuurbeslissingen
 
@@ -226,8 +227,10 @@ config-flow-API en de websocket met het root-token:
 ### Zonnepanelen
 Eisen, beslissingen (Z1–Z10) en ontwerp: [docs/zonnepanelen.md](docs/zonnepanelen.md). In het
 kort: een Growatt MIN 3000TL-XH met ShineLAN-X, lokaal gelezen door **Grott als systemd-service**
-op martha. Dat is geen container, dus C6 blijft gelden; de broncode gaat mee in de bundle (C1).
-Grott stuurt naar een webhook van HA. Alle berekeningen zitten in TimescaleDB
+op martha. Dat is geen container, dus C6 blijft gelden; de broncode gaat mee in de bundle (C1),
+maar staat niet in git (C23). Grott stuurt naar een webhook van HA. Zonder internet stuurt
+`martha_grott.py` de datalogger door naar een lokale grottserver (alleen op localhost), omdat
+Grott in proxy-modus anders niets verwerkt (C1a). Alle berekeningen zitten in TimescaleDB
 (`host/db/solar.sql`, tabel `solar_1m` per minuut) en worden in HA getoond via SQL-sensoren en
 HA-statistieken. Tarieven en investering zijn helpers in HA, en LTSS bewaart hun historie.
 Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.local` kent.
@@ -379,9 +382,15 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 - **Zonnepanelen** (vanaf 2026-10-23): ontwerp staat (zie *Zonnepanelen*), bouw in 6 fasen,
   met de omvormer zo laat mogelijk (fase 5). Fase 1–4 zijn gebouwd (2026-10-12): het
   databaseschema is getest op martha (teruggedraaid), maar `setup_solar.py` is nog niet
-  gedraaid.
-  Open: de contracttarieven en de gegevens van de installatie; bij de bouw na te gaan: Grott
-  zonder internet en het interval van de ShineLAN-X.
+  gedraaid. Fase 5 is voorbereid (2026-10-13): Grott met terugval is getest met een
+  nagebootste datalogger, maar nog niet met de echte stick.
+  Open: de contracttarieven, de gegevens van de installatie en het interval van de ShineLAN-X.
+- **`check_config` geeft exit 0 bij een ongeldige template-optie** (gevonden op 2026-10-13,
+  HA 2026.9.4). Hij logt alleen `ERROR:homeassistant.config:Invalid config for 'template' …`.
+  `check()` in `martha_ha.py` kijkt alleen naar de exitcode en laat zo'n fout dus door. Na de
+  herstart vangt de health-check het wel ("Invalid config" staat in `FATAL_LOG`), en volgt een
+  automatische rollback. Te overwegen: `check()` laten afkeuren op `Invalid config` in de
+  uitvoer.
 - Offline OS-updates (zie hierboven).
 - Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
 - **De health-check mist fouten bij het opzetten van een platform.** "Error while setting up

@@ -202,6 +202,50 @@ niet: wijzig het op de dag dat het ingaat.
 - **Nog niet getest:** `setup_solar.py` zelf (die vraagt `sudo` op martha), de automation van
   Nord Pool, en het dashboard.
 
+### Zoals gebouwd: omvormer (fase 5, voorbereid op 2026-10-13)
+Gebouwd en getest zonder omvormer; met de echte ShineLAN-X is het nog niet getest.
+
+- **Grott in proxy-modus verwerkt niets zonder internet.** Als Grott Growatt niet bereikt,
+  sluit hij de verbinding met de datalogger, en wordt er niets gedecodeerd
+  (`grottproxy.Proxy.on_accept`). Daarmee zou C1a niet gehaald worden. Daarom vervangt
+  `host/grott/martha_grott.py` het doorsturen: eerst naar Growatt (5 s), anders naar
+  grottserver op `127.0.0.1:5781` (`martha_grottserver.py`). Grottserver bevestigt de
+  records zoals Growatt dat doet. Is Growatt weer bereikbaar, dan beëindigt een watchdog (elke
+  10 minuten) de verbindingen met de terugval; de datalogger maakt opnieuw verbinding, en die
+  gaat weer naar Growatt. Wat tijdens de storing binnenkwam, staat alleen op martha.
+- **Grottserver luistert alleen op localhost.** Upstream bindt hij op `0.0.0.0`, inclusief de
+  HTTP-API (poort 5782) die registers van de omvormer kan schrijven. Die API is er voor
+  fase 6.
+- **Grott heeft geen licentie, en deze repo is publiek.** Daarom staat Grott niet in git:
+  `download.ps1` haalt hem op een vaste commit (`fb52e2d`, versie 2.8.3) op naar
+  `offline/grott` (in `.gitignore`), en `install.sh` zet hem in `/usr/local/lib/martha/grott`.
+  Zie C23 in DESIGN.md.
+- **Afhankelijkheden:** Grott importeert altijd `paho.mqtt` (ook met `nomqtt`), en grottserver
+  `libscrc` (een C-extensie zonder Ubuntu-pakket). Beide zijn vervangen door kleine eigen
+  modules in `host/grott/shims` (`libscrc.modbus` is CRC-16/MODBUS en geeft `0x4B37` voor
+  `123456789`). Verder alleen de stdlib.
+- **Naar HA:** de extensie `martha_ha_ext.py` stuurt de JSON van Grott naar de webhook
+  (`martha_grott_webhook` in `secrets.yaml`, `local_only`). `packages/solar_growatt.yaml` deelt
+  de ruwe waarden zoals de layout `T06NNNNXMIN` het voorschrijft (vermogen, energie, spanning,
+  stroom en temperatuur door 10, frequentie door 100). Records die de datalogger tijdens een
+  storing heeft gebufferd, veranderen de sensoren niet, want hun tijd is oud.
+- **`invtype = min`** in `grott.ini` is nodig, anders kiest Grott de verkeerde layout.
+- **Opwek per minuut** (`solar_pv`): het vermogen wordt lineair geïnterpoleerd tussen
+  berichten die hooguit 15 minuten uit elkaar liggen; een langer gat telt als 0 W (nacht).
+  Per dag wordt geschaald naar de totaalteller, met een factor tussen 0,8 en 1,25.
+- **Services:** `martha-grott` en `martha-grottserver` (DynamicUser, `ProtectSystem=strict`).
+  Ze starten pas als `setup_solar.py --inverter` `/etc/martha/grott.ini` heeft geschreven.
+  Grott leest die via `LoadCredential`.
+- **Getest (2026-10-13):**
+  - Op Windows, end-to-end: een nagebootst, versleuteld MIN-record van 560 bytes, met Growatt
+    onbereikbaar. De terugval naar grottserver werkte, de ACK kwam terug bij de "datalogger",
+    en de webhook kreeg de juiste waarden.
+  - `solar_pv` op martha (teruggedraaid), met nagebootste opwek: de interpolatie klopt, en na
+    het schalen komt de dagopwek exact uit op de teller.
+  - `solar_growatt.yaml` slaagt voor `check_config`.
+- **Nog niet getest:** met de echte stick; de watchdog; Grott op de Python van Ubuntu 26.04
+  (getest met 3.13); de interval-instelling.
+
 ### Staging
 Staging heeft geen echte database en geen Grott. SQL-sensoren geven daar fouten bij het
 opzetten, en de health-check ziet die niet (zie *Open punten* in DESIGN.md). Wat in staging
@@ -220,7 +264,7 @@ opwek (doel 1, en het deel van doel 3 en 5 dat daarop rust) hebben de omvormer n
 | 2 | **Rekenlaag op P1:** helpers voor tarieven, `solar_1m` en de job (opwek nog leeg), lopende totalen, energiedashboard (net), dashboard voor doel 2 (teruglevering, terugleverkosten, teruglevering tegen een negatieve prijs) en V1 | nee | Dag- en maandsommen van inkoop en teruglevering kloppen met de P1-tellers. |
 | 3 | **Overschot en simulatie (doel 4):** overschot per uur van de dag, `solar_simulate_battery` | nee | Een simulatie is voor één dag met de hand nagerekend. |
 | 4 | **Investering en voorspelling (doel 3 en 5):** helpers, PVGIS-referentie, Forecast.Solar, `solar_payback`, NPV en IRR. Tot fase 5 rekent de voorspelling met een aangenomen eigengebruik %. | nee | Terugverdientijd en IRR zijn met de hand nagerekend. |
-| 5 | **Omvormer:** vast IP, Grott, webhook-sensoren, opwek en eigen gebruik in `solar_1m`, doel 1, zonnepanelen in het energiedashboard | ja | Opwek komt binnen in HA en `ltss_1m`, ook als de internetverbinding eruit is. De Growatt-app werkt nog. Dagsommen kloppen met de Growatt-dagteller. |
+| 5 | **Omvormer:** vast IP, Grott, webhook-sensoren, opwek en eigen gebruik in `solar_1m`, doel 1, zonnepanelen in het energiedashboard. *Voorbereid (2026-10-13), nog te testen met de stick.* | ja | Opwek komt binnen in HA en `ltss_1m`, ook als de internetverbinding eruit is. De Growatt-app werkt nog. Dagsommen kloppen met de Growatt-dagteller. |
 | 6 | **Sturen (doel 6)**, alleen als fase 2 laat zien dat het loont | ja | Nog te ontwerpen. |
 
 **Gevolg:** tot fase 5 staat de opwek alleen in de Growatt-cloud, niet op
@@ -353,11 +397,14 @@ De omvormer beperken of uitzetten wanneer terugleveren geld kost (V2).
 
 Na te gaan bij de bouw:
 
-3. **Grott zonder internet:** blijft Grott meetwaarden doorgeven als het doorsturen naar
-   Growatt mislukt? Test dit in fase 5.
-4. **Interval van de ShineLAN-X:** kan hij naar 1 minuut, en hoe?
-5. **Afhankelijkheden van Grott:** kan hij draaien met alleen de stdlib (zonder MQTT), of zijn
-   er `.deb`'s nodig uit de offline mirror?
+3. ~~Grott zonder internet~~: nee, in proxy-modus niet. Opgelost met een terugval op een
+   lokale grottserver (zie *Zoals gebouwd: omvormer*). Met de echte stick nog te testen.
+4. **Interval van de ShineLAN-X:** kan hij naar 1 minuut? Grottserver kan registers van de
+   datalogger schrijven (`PUT /datalogger?command=register&datalogger=<serie>&register=<n>&value=<v>`
+   op `127.0.0.1:5782`), maar alleen zolang de stick met grottserver verbonden is, en welk
+   register het interval is, is voor de ShineLAN-X niet nagegaan.
+5. ~~Afhankelijkheden van Grott~~: alleen de stdlib, met eigen vervangers voor `paho.mqtt`
+   en `libscrc` (`host/grott/shims`).
 6. ~~`energy_date_selection` op de statistics-kaarten~~: bestaat in HA 2026.9 voor
    `statistics-graph` en `statistic` (nagekeken in de frontend, 2026-10-12).
 7. **Nord Pool:** hoe ver terug kan `get_prices_for_date` prijzen ophalen? De automation

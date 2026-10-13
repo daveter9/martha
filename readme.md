@@ -367,6 +367,32 @@ Daarna, met de hand:
    `input_number.solar_import_low` en `input_number.solar_import_normal`, en voor teruglevering
    (tarief 1 en 2) met `input_number.solar_feed_in`.
 
+#### Omvormer (Growatt via Grott)
+
+De Growatt MIN 3000TL-XH stuurt via zijn ShineLAN-X naar martha in plaats van rechtstreeks
+naar Growatt. Grott op martha stuurt alles door naar Growatt (de app blijft werken) en geeft
+elke meting aan HA. Zonder internet neemt een lokale grottserver het over, zodat de metingen
+blijven binnenkomen.
+
+1. Geef martha een **vast IP-adres** (DHCP-reservering in de router): de stick kent geen
+   `martha.local`.
+2. Zorg dat de bundle Grott bevat (`1. download\download.ps1` haalt het op naar
+   `offline\grott`) en installeer opnieuw.
+3. Draai:
+
+   ```bash
+   ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_solar.py --inverter
+   ```
+
+   Dit voegt een webhook-secret toe aan `secrets.yaml`, rolt `packages/solar_growatt.yaml`
+   uit, schrijft `/etc/martha/grott.ini`, start `martha-grottserver` en `martha-grott`, en
+   voegt het tabblad **Omvormer** toe aan het dashboard.
+4. Zet in de webinterface van de ShineLAN-X (op het IP-adres van de stick) het
+   **serveradres** op het IP-adres van martha, poort 5279.
+5. Controleer: `journalctl -fu martha-grott` toont binnenkomende berichten, en
+   **Zonnepanelen → Omvormer** toont het vermogen.
+6. Voeg in het energiedashboard bij **Zonnepanelen** de sensor *Growatt opwek totaal* toe.
+
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).
