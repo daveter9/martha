@@ -1,0 +1,23 @@
+[Unit]
+Description=martha: grottserver on localhost, the fallback of martha-grott without internet
+Documentation=file:///usr/local/lib/martha/grott-martha/martha_grottserver.py
+After=network.target
+ConditionPathExists=/etc/martha/grott.ini
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/martha/grott-martha/martha_grottserver.py
+WorkingDirectory=/usr/local/lib/martha/grott
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+DynamicUser=yes
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

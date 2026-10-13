@@ -1,0 +1,32 @@
+# Grott configuration for martha (docs/zonnepanelen.md, Z6). Written to /etc/martha/grott.ini
+# by host/ha/setup_solar.py --inverter; __WEBHOOK_URL__ becomes the Home Assistant webhook.
+# martha_grott.py adds a fallback to the local grottserver when Growatt is unreachable.
+
+[Generic]
+mode = proxy
+# The ShineLAN-X sends here (set martha's IP as server address in the datalogger).
+ip = 0.0.0.0
+port = 5279
+verbose = False
+# Growatt MIN 3000TL-XH: record layout T06NNNNXMIN.
+invtype = min
+# Record time when valid, otherwise the time of martha.
+time = auto
+# Also process records the datalogger buffered during an outage.
+sendbuf = True
+
+[Growatt]
+ip = server.growatt.com
+port = 5279
+
+[MQTT]
+# No broker on martha (C6); the extension posts to Home Assistant instead.
+nomqtt = True
+
+[PVOutput]
+pvoutput = False
+
+[extension]
+extension = True
+extname = martha_ha_ext
+extvar = {"url": "__WEBHOOK_URL__"}
