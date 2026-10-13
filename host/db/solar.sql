@@ -19,6 +19,8 @@
 --   import_low, import_normal   P1 counters, electricity used tariff 1 (low) and 2 (normal)
 --   export_low, export_normal   P1 counters, electricity delivered tariff 1 and 2
 --   tariff                      P1 active tariff ('low' or 'normal')
+--   pv_power, pv_total          inverter AC power (W) and total generation (kWh), from Grott
+--                               (packages/solar_growatt.yaml); written by setup_solar.py --inverter
 CREATE TABLE IF NOT EXISTS solar_entity (
     role      text PRIMARY KEY,
     entity_id text NOT NULL
@@ -194,9 +196,96 @@ LANGUAGE sql STABLE AS $$
     SELECT t, first_value(s) OVER (PARTITION BY grp ORDER BY t) FROM grouped
 $$;
 
+-- Generation per minute (kWh) in [p_from, p_to), from the inverter's AC power (W, every 1 to
+-- 5 minutes through Grott) and its total counter (kWh, resolution 0.1 kWh, too coarse per
+-- minute). The power is interpolated linearly between two messages at most 15 minutes
+-- apart; a longer gap (night, or Grott down) counts as 0 W. Per local day the result is
+-- scaled so it matches the counter, with the factor limited to 0.8 .. 1.25 so an outage
+-- during the day is not smeared over the other minutes. Minutes before the first power
+-- message ever are NULL (generation unknown). No rows when p_power is NULL.
+CREATE OR REPLACE FUNCTION solar_pv(p_power text, p_total text, p_from timestamptz, p_to timestamptz)
+RETURNS TABLE (minute timestamptz, pv double precision)
+LANGUAGE sql STABLE AS $$
+    WITH bounds AS (
+        SELECT (date_trunc('day', p_from AT TIME ZONE 'Europe/Amsterdam') AT TIME ZONE 'Europe/Amsterdam') AS d_from,
+               (SELECT min(bucket) FROM ltss_1m WHERE entity_id = p_power) AS first_sample
+        WHERE p_power IS NOT NULL
+    ),
+    m AS (
+        SELECT generate_series(b.d_from - INTERVAL '15 minutes', p_to + INTERVAL '15 minutes',
+                               INTERVAL '1 minute') AS t
+        FROM bounds b
+    ),
+    s AS (
+        SELECT bucket, value_avg FROM ltss_1m, bounds b
+        WHERE entity_id = p_power
+          AND bucket >= b.d_from - INTERVAL '15 minutes' AND bucket <= p_to + INTERVAL '15 minutes'
+    ),
+    raw AS (
+        SELECT m.t, s.value_avg AS w, CASE WHEN s.value_avg IS NOT NULL THEN m.t END AS ts
+        FROM m LEFT JOIN s ON s.bucket = m.t
+    ),
+    marks AS (
+        SELECT t, w, ts,
+               count(ts) OVER (ORDER BY t) AS g_prev,
+               count(ts) OVER (ORDER BY t DESC) AS g_next
+        FROM raw
+    ),
+    around AS (
+        SELECT t, w,
+               first_value(ts) OVER (PARTITION BY g_prev ORDER BY t) AS t_prev,
+               first_value(w)  OVER (PARTITION BY g_prev ORDER BY t) AS w_prev,
+               first_value(ts) OVER (PARTITION BY g_next ORDER BY t DESC) AS t_next,
+               first_value(w)  OVER (PARTITION BY g_next ORDER BY t DESC) AS w_next
+        FROM marks
+    ),
+    power AS (
+        SELECT a.t,
+               CASE WHEN b.first_sample IS NULL OR a.t < b.first_sample THEN NULL
+                    WHEN a.w IS NOT NULL THEN a.w
+                    WHEN a.t_prev IS NOT NULL AND a.t_next IS NOT NULL
+                         AND a.t_next - a.t_prev <= INTERVAL '15 minutes'
+                    THEN a.w_prev + (a.w_next - a.w_prev)
+                         * extract(epoch FROM a.t - a.t_prev) / extract(epoch FROM a.t_next - a.t_prev)
+                    -- The newest message, while the next one is still on its way.
+                    WHEN a.t_prev IS NOT NULL AND a.t_next IS NULL
+                         AND a.t - a.t_prev <= INTERVAL '15 minutes' AND a.t_prev > now() - INTERVAL '15 minutes'
+                    THEN a.w_prev
+                    ELSE 0 END AS w
+        FROM around a, bounds b
+        WHERE a.t >= b.d_from AND a.t < p_to
+    ),
+    est AS (
+        SELECT t, (t AT TIME ZONE 'Europe/Amsterdam')::date AS day,
+               CASE WHEN w IS NOT NULL THEN greatest(w, 0) / 60000 END AS kwh
+        FROM power
+    ),
+    days AS (
+        SELECT day, sum(kwh) AS kwh,
+               min(t) AS t_first, max(t) + INTERVAL '1 minute' AS t_end
+        FROM est GROUP BY day
+    ),
+    factor AS (
+        SELECT d.day,
+               CASE WHEN c.delta > 0.05 AND d.kwh > 0.05
+                    THEN least(greatest(c.delta / d.kwh, 0.8), 1.25) ELSE 1 END AS f
+        FROM days d
+        LEFT JOIN LATERAL (
+            SELECT (SELECT value_last FROM ltss_1m
+                    WHERE entity_id = p_total AND bucket < d.t_end ORDER BY bucket DESC LIMIT 1)
+                 - (SELECT value_last FROM ltss_1m
+                    WHERE entity_id = p_total AND bucket < d.t_first ORDER BY bucket DESC LIMIT 1) AS delta
+        ) c ON TRUE
+    )
+    SELECT e.t, e.kwh * f.f
+    FROM est e JOIN factor f USING (day)
+    WHERE e.t >= p_from
+$$;
+
 -- --- Per minute -------------------------------------------------------------------------
--- pv, self_use and use_total stay NULL until the inverter is read (phase 5); saving_self
--- likewise. Prices are those that held in that minute (solar_setting_ranges).
+-- pv, self_use, use_total and saving_self are NULL while the generation is unknown (no
+-- inverter roles yet, or before its first message). Prices are those that held in that
+-- minute (solar_setting_ranges).
 CREATE TABLE IF NOT EXISTS solar_1m (
     minute             timestamptz NOT NULL PRIMARY KEY,
     import_low         double precision NOT NULL,  -- kWh from the grid, tariff 1
@@ -277,6 +366,7 @@ BEGIN
                coalesce(el.delta, 0) AS export_low,
                coalesce(enr.delta, 0) AS export_normal,
                tf.tariff,
+               pv.pv,
                (SELECT CASE WHEN p.end_time > m.t THEN p.price_eur_mwh / 1000 END
                 FROM energy_price p
                 WHERE p.area = 'NL' AND p.start <= m.t
@@ -295,6 +385,8 @@ BEGIN
         LEFT JOIN solar_counter(solar_entity_id('export_low'), v_from, v_to) el ON el.minute = m.t
         LEFT JOIN solar_counter(solar_entity_id('export_normal'), v_from, v_to) enr ON enr.minute = m.t
         LEFT JOIN solar_tariff(solar_entity_id('tariff'), v_from, v_to) tf ON tf.minute = m.t
+        LEFT JOIN solar_pv(solar_entity_id('pv_power'), solar_entity_id('pv_total'), v_from, v_to) pv
+            ON pv.minute = m.t
     ),
     calc AS (
         SELECT b.*,
@@ -302,7 +394,10 @@ BEGIN
                b.export_low + b.export_normal AS export_kwh,
                CASE WHEN b.tariff = 'low' THEN b.p_low ELSE b.p_normal END AS price_import,
                coalesce(b.p_feed_in, 0) - coalesce(b.p_feed_in_cost, 0) AS price_export_net,
-               1 + coalesce(b.vat, 21) / 100 AS vat_factor
+               1 + coalesce(b.vat, 21) / 100 AS vat_factor,
+               -- greatest() ignores NULL, so the unknown case is explicit.
+               CASE WHEN b.pv IS NOT NULL
+                    THEN greatest(b.pv - (b.export_low + b.export_normal), 0) END AS self_use
         FROM base b
     )
     INSERT INTO solar_1m AS s (
@@ -311,11 +406,11 @@ BEGIN
         cost_import, revenue_export, cost_export, saving_self,
         dyn_cost_import, dyn_revenue_export)
     SELECT t, import_low, import_normal, export_low, export_normal, tariff,
-           NULL, NULL, NULL, day_ahead, price_import, price_export_net,
+           pv, self_use, import_kwh + self_use, day_ahead, price_import, price_export_net,
            import_low * p_low + import_normal * p_normal,
            export_kwh * p_feed_in,
            export_kwh * p_feed_in_cost,
-           NULL,
+           self_use * price_import,
            import_kwh * (day_ahead + coalesce(dyn_in, 0) + coalesce(tax, 0)) * vat_factor,
            export_kwh * (day_ahead - coalesce(dyn_out, 0)) * vat_factor
     FROM calc
@@ -324,6 +419,12 @@ BEGIN
         export_low = EXCLUDED.export_low, export_normal = EXCLUDED.export_normal,
         -- Raw tariff states are gone after 30 days: keep the stored one then.
         tariff = coalesce(EXCLUDED.tariff, s.tariff),
+        -- Without inverter data now (e.g. recomputing after the raw states are gone), keep
+        -- what was calculated before.
+        pv = coalesce(EXCLUDED.pv, s.pv),
+        self_use = coalesce(EXCLUDED.self_use, s.self_use),
+        use_total = coalesce(EXCLUDED.use_total, s.use_total),
+        saving_self = coalesce(EXCLUDED.saving_self, s.saving_self),
         day_ahead = EXCLUDED.day_ahead,
         price_import = CASE WHEN EXCLUDED.tariff IS NULL AND s.tariff IS NOT NULL
                             THEN s.price_import ELSE EXCLUDED.price_import END,
@@ -390,11 +491,11 @@ RETURNS TABLE (
     cmp_cost_fixed double precision, cmp_cost_dynamic double precision)
 LANGUAGE sql STABLE AS $$
     SELECT sum(self_use), sum(saving_self),
-           sum(export_low + export_normal), sum(revenue_export),
-           sum(cost_export) + coalesce(sum(cost_export_fixed), 0),
+           sum(export_low + export_normal), coalesce(sum(revenue_export), 0),
+           coalesce(sum(cost_export), 0) + coalesce(sum(cost_export_fixed), 0),
            sum(export_negative), coalesce(sum(revenue_negative), 0),
-           coalesce(sum(saving_self), 0) + sum(revenue_export)
-               - sum(cost_export) - coalesce(sum(cost_export_fixed), 0),
+           coalesce(sum(saving_self), 0) + coalesce(sum(revenue_export), 0)
+               - coalesce(sum(cost_export), 0) - coalesce(sum(cost_export_fixed), 0),
            sum(cost_import),
            sum(cmp_cost_fixed), sum(cmp_cost_dynamic)
     FROM solar_1d
@@ -682,16 +783,19 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- --- Jobs -------------------------------------------------------------------------------
--- Every 5 minutes: the minutes since the last run, and always the last 6 hours, so late
--- states (LTSS, ltss_1m refresh) and new prices are counted.
+-- Every 5 minutes: the minutes since the last run, and always from the local midnight before
+-- the last 6 hours, so late states (LTSS, ltss_1m refresh), new prices and the daily scaling
+-- of the generation (solar_pv) are counted.
 CREATE OR REPLACE PROCEDURE solar_job(job_id integer, config jsonb)
 LANGUAGE plpgsql AS $$
 DECLARE
     v_last timestamptz;
+    v_day  timestamptz := date_trunc('day', (now() - INTERVAL '6 hours') AT TIME ZONE 'Europe/Amsterdam')
+                          AT TIME ZONE 'Europe/Amsterdam';
 BEGIN
     SELECT max(minute) INTO v_last FROM solar_1m;
     PERFORM solar_recompute(CASE WHEN v_last IS NULL THEN solar_start()
-                                 ELSE least(now() - INTERVAL '6 hours', v_last + INTERVAL '1 minute') END,
+                                 ELSE least(v_day, v_last + INTERVAL '1 minute') END,
                             now());
 END $$;
 
