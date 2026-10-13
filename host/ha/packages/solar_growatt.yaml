@@ -1,0 +1,114 @@
+# Growatt MIN 3000TL-XH through Grott (docs/zonnepanelen.md, Z6, phase 5).
+# Deployed by host/ha/setup_solar.py --inverter as packages/solar_growatt.yaml (through
+# martha-ha, so it is in the config repository).
+#
+# martha-grott (host/grott) decodes the records of the ShineLAN-X and posts each one to this
+# webhook (only from martha itself: local_only). Grott sends raw integers; the layout
+# T06NNNNXMIN divides power, energy, voltage, current and temperature by 10 and the
+# frequency by 100. Buffered records (sent after an outage, with an old time) do not change
+# the states: they would set the power of hours ago as the current power. LTSS stores the
+# sensors; host/db/solar.sql uses the power and the total (roles pv_power and pv_total).
+
+template:
+  - triggers:
+      - trigger: webhook
+        webhook_id: !secret martha_grott_webhook
+        allowed_methods:
+          - POST
+        local_only: true
+    variables:
+      v: "{{ trigger.json.get('values', {}) if trigger.json is mapping else {} }}"
+      live: "{{ trigger.json is mapping and trigger.json.get('buffered') != 'yes' and 'pvpowerout' in v }}"
+    sensor:
+      - name: Growatt vermogen
+        unique_id: solar_growatt_power
+        default_entity_id: sensor.solar_growatt_power
+        icon: mdi:solar-power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: "{{ v.pvpowerout / 10 if live else this.state }}"
+      - name: Growatt opwek vandaag
+        unique_id: solar_growatt_energy_today
+        default_entity_id: sensor.solar_growatt_energy_today
+        icon: mdi:solar-power
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        state: "{{ v.pvenergytoday / 10 if live else this.state }}"
+      - name: Growatt opwek totaal
+        unique_id: solar_growatt_energy_total
+        default_entity_id: sensor.solar_growatt_energy_total
+        icon: mdi:solar-power
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        state: "{{ v.pvenergytotal / 10 if live else this.state }}"
+      - name: Growatt string 1 spanning
+        unique_id: solar_growatt_pv1_voltage
+        default_entity_id: sensor.solar_growatt_pv1_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        state_class: measurement
+        state: "{{ v.pv1voltage / 10 if live and 'pv1voltage' in v else this.state }}"
+      - name: Growatt string 1 stroom
+        unique_id: solar_growatt_pv1_current
+        default_entity_id: sensor.solar_growatt_pv1_current
+        unit_of_measurement: A
+        device_class: current
+        state_class: measurement
+        state: "{{ v.pv1current / 10 if live and 'pv1current' in v else this.state }}"
+      - name: Growatt string 2 spanning
+        unique_id: solar_growatt_pv2_voltage
+        default_entity_id: sensor.solar_growatt_pv2_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        state_class: measurement
+        state: "{{ v.pv2voltage / 10 if live and 'pv2voltage' in v else this.state }}"
+      - name: Growatt string 2 stroom
+        unique_id: solar_growatt_pv2_current
+        default_entity_id: sensor.solar_growatt_pv2_current
+        unit_of_measurement: A
+        device_class: current
+        state_class: measurement
+        state: "{{ v.pv2current / 10 if live and 'pv2current' in v else this.state }}"
+      - name: Growatt netspanning
+        unique_id: solar_growatt_grid_voltage
+        default_entity_id: sensor.solar_growatt_grid_voltage
+        unit_of_measurement: V
+        device_class: voltage
+        state_class: measurement
+        state: "{{ v.pvgridvoltage / 10 if live and 'pvgridvoltage' in v else this.state }}"
+      - name: Growatt netfrequentie
+        unique_id: solar_growatt_frequency
+        default_entity_id: sensor.solar_growatt_frequency
+        unit_of_measurement: Hz
+        device_class: frequency
+        state_class: measurement
+        state: "{{ v.pvfrequentie / 100 if live and 'pvfrequentie' in v else this.state }}"
+      - name: Growatt temperatuur
+        unique_id: solar_growatt_temperature
+        default_entity_id: sensor.solar_growatt_temperature
+        unit_of_measurement: °C
+        device_class: temperature
+        state_class: measurement
+        state: "{{ v.pvtemperature / 10 if live and 'pvtemperature' in v else this.state }}"
+      - name: Growatt status
+        unique_id: solar_growatt_status
+        default_entity_id: sensor.solar_growatt_status
+        icon: mdi:information-outline
+        # Growatt: 0 waiting, 1 normal, 3 fault.
+        state: >-
+          {% if live and 'pvstatus' in v %}
+            {{ {0: 'wachten', 1: 'normaal', 3: 'storing'}.get(v.pvstatus | int, 'code ' ~ v.pvstatus) }}
+          {% else %}{{ this.state }}{% endif %}
+      - name: Growatt laatste bericht
+        unique_id: solar_growatt_last_message
+        default_entity_id: sensor.solar_growatt_last_message
+        icon: mdi:clock-check-outline
+        device_class: timestamp
+        state: "{{ now().isoformat() }}"
+        attributes:
+          buffered: "{{ trigger.json.get('buffered') if trigger.json is mapping else none }}"
+          inverter_time: "{{ trigger.json.get('time') if trigger.json is mapping else none }}"
+          device: "{{ trigger.json.get('device') if trigger.json is mapping else none }}"

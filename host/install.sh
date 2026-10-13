@@ -288,7 +288,25 @@ install -m 0755 "$ROOT/host/ha/setup_p1.py" /usr/local/lib/martha/setup_p1.py
 install -m 0755 "$ROOT/host/ha/setup_solar.py" /usr/local/lib/martha/setup_solar.py
 install -d -m 0755 /usr/local/lib/martha/solar
 install -m 0644 "$ROOT/host/ha/packages/solar.yaml" "$ROOT/host/ha/packages/solar_prices.yaml" \
+    "$ROOT/host/ha/packages/solar_growatt.yaml" "$ROOT/host/grott/grott.ini.template" \
     /usr/local/lib/martha/solar/
+# Grott (Growatt datalogger, phase 5) from the bundle, plus martha's launchers, extension and
+# stand-ins. The services only start once 'setup_solar.py --inverter' wrote /etc/martha/grott.ini.
+rm -rf /usr/local/lib/martha/grott /usr/local/lib/martha/grott-martha
+if [ -d "$OFFLINE/grott" ]; then
+    install -d -m 0755 /usr/local/lib/martha/grott
+    install -m 0644 "$OFFLINE"/grott/*.py /usr/local/lib/martha/grott/
+else
+    log "WARNING: no Grott in the bundle (offline/grott); run 1. download/download.ps1 again"
+fi
+cp -r "$ROOT/host/grott" /usr/local/lib/martha/grott-martha
+find /usr/local/lib/martha/grott-martha -name __pycache__ -prune -exec rm -rf {} +
+chmod -R u=rwX,go=rX /usr/local/lib/martha/grott-martha
+install -m 0644 "$ROOT/host/martha-grott.service" /etc/systemd/system/martha-grott.service
+install -m 0644 "$ROOT/host/martha-grottserver.service" /etc/systemd/system/martha-grottserver.service
+systemctl daemon-reload
+systemctl enable martha-grott.service martha-grottserver.service
+systemctl try-restart martha-grottserver.service martha-grott.service
 # Staging HA (started on demand by 'martha-ha staging') and its LAN forward on port 8124.
 install -m 0644 "$ROOT/host/gate/staging_proxy.py" /usr/local/lib/martha/staging_proxy.py
 install -m 0644 "$ROOT/host/martha-staging-proxy.service" /etc/systemd/system/martha-staging-proxy.service

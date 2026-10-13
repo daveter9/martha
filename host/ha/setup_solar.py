@@ -3,7 +3,7 @@
 
 Run as root on martha, after install.sh (which applies host/db/solar.sql) and setup_p1.py:
 
-    sudo python3 /usr/local/lib/martha/setup_solar.py [--start 2026-10-23]
+    sudo python3 /usr/local/lib/martha/setup_solar.py [--start 2026-10-23] [--inverter]
 
 Idempotent; each run:
   1. makes a backup (martha-ha backup before-solar);
@@ -18,13 +18,20 @@ Idempotent; each run:
      existing helpers and their values are left alone;
   7. writes the dashboard 'Zonnepanelen' (/zonnepanelen).
 
-The inverter (phase 5) is not set up here yet.
+With --inverter (phase 5, the Growatt through Grott), also:
+  - a webhook id martha_grott_webhook in secrets.yaml (once);
+  - packages/solar_growatt.yaml (the sensors the webhook fills);
+  - /etc/martha/grott.ini, and (re)starting martha-grottserver and martha-grott;
+  - the roles pv_power and pv_total in solar_entity, so the calculations use the generation;
+  - the tab 'Omvormer' on the dashboard.
+Then point the ShineLAN-X at martha's IP address (see the readme).
 """
 
 import argparse
 import datetime
 import os
 import re
+import secrets
 import sys
 import time
 
@@ -35,7 +42,13 @@ import setup_p1  # noqa: E402
 DASHBOARD = "zonnepanelen"
 TEMPLATES = "/usr/local/lib/martha/solar"   # host/ha/packages/solar*.yaml
 PACKAGES = ("packages/solar.yaml", "packages/solar_prices.yaml")
+GROWATT_PACKAGE = "packages/solar_growatt.yaml"
 STORAGE = m.CONFIG + "/packages/martha_storage.yaml"
+SECRETS = m.CONFIG + "/secrets.yaml"
+WEBHOOK_SECRET = "martha_grott_webhook"
+GROTT_INI = "/etc/martha/grott.ini"
+GROTT_SERVICES = ("martha-grottserver.service", "martha-grott.service")
+PV_ROLES = {"solar_growatt_power": "pv_power", "solar_growatt_energy_total": "pv_total"}
 LTSS_DOMAINS = ("input_number", "input_datetime")
 DEFAULT_START = "2026-10-23"   # the panels are installed
 
@@ -152,10 +165,62 @@ def add_nordpool(token):
               "it needs internet; run again later")
 
 
-def deploy_packages():
+def ensure_webhook_secret():
+    """The webhook id Grott posts to, in secrets.yaml (0600, never in the config repo).
+    Created once; returns it."""
+    text = ""
+    if os.path.exists(SECRETS):
+        with open(SECRETS) as f:
+            text = f.read()
+    found = re.search(rf"^{WEBHOOK_SECRET}:\s*\"?([A-Za-z0-9_-]+)\"?\s*$", text, re.M)
+    if found:
+        return found.group(1)
+    webhook = "martha_grott_" + secrets.token_hex(16)
+    with open(SECRETS, "a") as f:
+        if text and not text.endswith("\n"):
+            f.write("\n")
+        f.write(f'{WEBHOOK_SECRET}: "{webhook}"\n')
+    os.chmod(SECRETS, 0o600)
+    m.log(f"added {WEBHOOK_SECRET} to {SECRETS}")
+    return webhook
+
+
+def setup_grott(webhook):
+    """Write /etc/martha/grott.ini and (re)start the Grott services."""
+    with open(os.path.join(TEMPLATES, "grott.ini.template")) as f:
+        ini = f.read().replace("__WEBHOOK_URL__", f"{m.HA_URL}/api/webhook/{webhook}")
+    os.makedirs(os.path.dirname(GROTT_INI), exist_ok=True)
+    with open(GROTT_INI + ".tmp", "w") as f:
+        f.write(ini)
+    os.chmod(GROTT_INI + ".tmp", 0o600)
+    os.replace(GROTT_INI + ".tmp", GROTT_INI)
+    if not os.path.exists("/usr/local/lib/martha/grott/grott.py"):
+        raise m.Error("Grott is not installed; run 1. download/download.ps1 and install.sh again")
+    m.run(["systemctl", "enable", *GROTT_SERVICES])
+    m.run(["systemctl", "restart", *GROTT_SERVICES])
+    time.sleep(3)
+    res = m.run(["systemctl", "is-active", *GROTT_SERVICES], check=False)
+    if res.stdout.split() != ["active", "active"]:
+        raise m.Error("Grott services not running; see journalctl -u martha-grott -u martha-grottserver")
+    m.log("Grott listens on port 5279 (journalctl -fu martha-grott)")
+
+
+def write_pv_roles(ws):
+    ids = sql_entities(ws)
+    missing = [uid for uid in PV_ROLES if uid not in ids]
+    if missing:
+        raise m.Error("Growatt sensors not found: " + ", ".join(missing))
+    m.psql("INSERT INTO solar_entity (role, entity_id) VALUES " +
+           ", ".join(f"('{role}', '{ids[uid]}')" for uid, role in PV_ROLES.items()
+                     if re.fullmatch(r"sensor\.[a-z0-9_]+", ids[uid])) +
+           " ON CONFLICT (role) DO UPDATE SET entity_id = EXCLUDED.entity_id")
+    m.log("inverter entities: " + ", ".join(f"{r}={ids[u]}" for u, r in PV_ROLES.items()))
+
+
+def deploy_packages(paths):
     """Put the packages in production through martha-ha. True when something changed."""
     contents = {}
-    for path in PACKAGES:
+    for path in paths:
         with open(os.path.join(TEMPLATES, os.path.basename(path))) as f:
             contents[path] = f.read()
 
@@ -320,6 +385,24 @@ def dashboard(ids):
             "startdatum."},
     ]
 
+    growatt = ["solar_growatt_power", "solar_growatt_energy_today", "solar_growatt_status",
+               "solar_growatt_temperature", "solar_growatt_last_message"]
+    strings = ["solar_growatt_pv1_voltage", "solar_growatt_pv1_current",
+               "solar_growatt_pv2_voltage", "solar_growatt_pv2_current"]
+    inverter = [
+        {"type": "grid", "columns": 2, "square": False,
+         "cards": [{"type": "tile", "entity": e(u)} for u in growatt]},
+        {"type": "history-graph", "title": "Vermogen (24 uur)", "hours_to_show": 24,
+         "entities": [e("solar_growatt_power")]},
+        graph("Opwek per dag (30 dagen)", ["solar_growatt_energy_total"], "day", 30),
+        graph("Opwek per maand (1 jaar)", ["solar_growatt_energy_total"], "month", 365),
+        {"type": "history-graph", "title": "Strings (24 uur)", "hours_to_show": 24,
+         "entities": [e(u) for u in strings]},
+        {"type": "entities", "title": "Net", "entities": [
+            e("solar_growatt_grid_voltage"), e("solar_growatt_frequency"),
+            e("solar_growatt_energy_total")]},
+    ]
+
     def clean(cards):
         out = []
         for c in cards:
@@ -339,6 +422,8 @@ def dashboard(ids):
              ("Investering", "investering", "mdi:finance", investment),
              ("Overschot", "overschot", "mdi:sun-clock", surplus),
              ("Instellingen", "instellingen", "mdi:cog", settings)]
+    if e("solar_growatt_power"):
+        views.insert(1, ("Omvormer", "omvormer", "mdi:solar-panel", inverter))
     return {"title": "Zonnepanelen",
             "views": [{"title": t, "path": p, "icon": i, "cards": clean(c)}
                       for t, p, i, c in views]}
@@ -357,6 +442,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--start", default=DEFAULT_START,
                    help=f"start date of the investment, for a new helper (default {DEFAULT_START})")
+    p.add_argument("--inverter", action="store_true",
+                   help="also set up the Growatt through Grott (phase 5)")
     a = p.parse_args()
     datetime.date.fromisoformat(a.start)
     if os.geteuid() != 0:
@@ -370,12 +457,20 @@ def main():
     write_roles(token)
     storage_changed = patch_storage()
     add_nordpool(token)
-    deployed = deploy_packages()
+    packages = list(PACKAGES)
+    if a.inverter:
+        webhook = ensure_webhook_secret()   # before the deploy: check_config needs the secret
+        packages.append(GROWATT_PACKAGE)
+    deployed = deploy_packages(packages)
     if storage_changed and not deployed:
         restart()
+    if a.inverter:
+        setup_grott(webhook)
     ws = m.WebSocket(m.HA_URL, token)
     try:
         create_helpers(ws, a.start)
+        if a.inverter:
+            write_pv_roles(ws)
         ids = sql_entities(ws)
         m.log(f"{len(ids)} solar sensors: " + ", ".join(sorted(ids.values())))
         write_dashboard(ws, ids)
@@ -384,6 +479,10 @@ def main():
     # Fill solar_1m from the start now instead of waiting for the job.
     n = m.psql("SELECT solar_recompute(solar_start(), now())")
     m.log(f"calculated {n} minutes since the start")
+    if a.inverter:
+        ips = m.run(["hostname", "-I"], check=False).stdout.split()
+        m.log(f"set the server address of the ShineLAN-X to {ips[0] if ips else '<martha IP>'} "
+              "(port 5279), with a fixed IP for martha in the router")
 
 
 if __name__ == "__main__":
