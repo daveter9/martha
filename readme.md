@@ -352,7 +352,7 @@ Het script maakt eerst een back-up. Daarna:
   waarschuwing en draai je het later opnieuw);
 - rolt het `packages/solar.yaml` en `packages/solar_prices.yaml` uit via martha-ha;
 - maakt het de helpers aan, met startdatum 2026-10-23 (`--start`);
-- maakt het het dashboard **Zonnepanelen** (`http://martha.local:8123/zonnepanelen`).
+- maakt het het dashboard **Zonnepanelen** (`http://martha.local:8123/zonne-energie`).
 
 Opnieuw draaien kan: bestaande helpers en hun waarden blijven staan, het dashboard wordt
 opnieuw geschreven.

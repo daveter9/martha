@@ -199,8 +199,14 @@ niet: wijzig het op de dag dat het ingaat.
   transactie die werd teruggedraaid (`ROLLBACK`). De inkoop per dag uit `solar_1d` klopt met
   het verschil van de P1-tellers (5,874 tegen 5,873 kWh op 2026-10-11). De NPV bij de berekende
   IRR is 0. De packages slagen voor `check_config` in een wegwerpcontainer.
-- **Nog niet getest:** `setup_solar.py` zelf (die vraagt `sudo` op martha), de automation van
-  Nord Pool, en het dashboard.
+- **Geïnstalleerd op martha (2026-10-13)**, zonder `--inverter`: het schema met de stappen van
+  `install.sh` (na de back-up `pre-solar-schema`), daarna `setup_solar.py`. Nord Pool is
+  toegevoegd, de packages zijn uitgerold (`check_config` en de health-check slaagden), en de 24
+  helpers staan met hun eerste waarde in `solar_setting`. Het dashboard staat op
+  `/zonne-energie`: HA eist een streepje in de URL van een dashboard, dus `/zonnepanelen` kon
+  niet. De automation haalde de prijzen van 33 dagen op (96 per dag, per kwartier), en die
+  komen exact overeen met de API van Nord Pool. Beide jobs draaien zonder fouten.
+  `solar_1m` blijft leeg tot de startdatum (2026-10-23).
 
 ### Zoals gebouwd: omvormer (fase 5, voorbereid op 2026-10-13)
 Gebouwd en getest zonder omvormer; met de echte ShineLAN-X is het nog niet getest.

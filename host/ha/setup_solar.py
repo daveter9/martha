@@ -16,7 +16,7 @@ Idempotent; each run:
      (check_config, backup, restart, health check, automatic rollback);
   6. creates the helpers (tariffs, investment, forecast, battery) that do not exist yet;
      existing helpers and their values are left alone;
-  7. writes the dashboard 'Zonnepanelen' (/zonnepanelen).
+  7. writes the dashboard 'Zonnepanelen' (/zonne-energie).
 
 With --inverter (phase 5, the Growatt through Grott), also:
   - a webhook id martha_grott_webhook in secrets.yaml (once);
@@ -39,7 +39,7 @@ sys.path.insert(0, "/usr/local/lib/martha")
 import martha_ha as m  # noqa: E402
 import setup_p1  # noqa: E402
 
-DASHBOARD = "zonnepanelen"
+DASHBOARD = "zonne-energie"   # HA requires a hyphen in a dashboard URL
 TEMPLATES = "/usr/local/lib/martha/solar"   # host/ha/packages/solar*.yaml
 PACKAGES = ("packages/solar.yaml", "packages/solar_prices.yaml")
 GROWATT_PACKAGE = "packages/solar_growatt.yaml"

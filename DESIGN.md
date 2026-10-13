@@ -381,8 +381,8 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 ## Open punten
 - **Zonnepanelen** (vanaf 2026-10-23): ontwerp staat (zie *Zonnepanelen*), bouw in 6 fasen,
   met de omvormer zo laat mogelijk (fase 5). Fase 1–4 zijn gebouwd (2026-10-12): het
-  databaseschema is getest op martha (teruggedraaid), maar `setup_solar.py` is nog niet
-  gedraaid. Fase 5 is voorbereid (2026-10-13): Grott met terugval is getest met een
+  databaseschema is getest op martha (teruggedraaid), en op 2026-10-13 staat het live:
+  prijzen, helpers en dashboard `/zonne-energie`. Fase 5 is voorbereid (2026-10-13): Grott met terugval is getest met een
   nagebootste datalogger, maar nog niet met de echte stick.
   Open: de contracttarieven, de gegevens van de installatie en het interval van de ShineLAN-X.
 - **`check_config` geeft exit 0 bij een ongeldige template-optie** (gevonden op 2026-10-13,
