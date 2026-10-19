@@ -242,11 +242,12 @@ HA-statistieken. Tarieven en investering zijn helpers in HA, en LTSS bewaart hun
 Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.local` kent.
 
 ### CV-ketel tegen warmtepomp
-Ontwerp, rekenmodel en beslissingen (W1–W7): [docs/warmtepomp.md](docs/warmtepomp.md). In het
+Ontwerp, rekenmodel en beslissingen (W1–W9): [docs/warmtepomp.md](docs/warmtepomp.md). In het
 kort: dezelfde opzet als de zonnepanelen. `host/db/heat.sql` rekent per minuut (`heat_1m`) uit
 wat het gas van de P1-meter met de CV-ketel kost, en wat dezelfde warmte zou kosten met een
-volledig elektrische en een hybride warmtepomp (COP uit een Carnot-model op een stooklijn, de
-buitentemperatuur van de weer-entity). Alle aannames zijn helpers (`input_number.heat_*`); hun
+volledig elektrische warmtepomp (COP uit een Carnot-model op een stooklijn, de buitentemperatuur
+van de weer-entity), elk met de contractprijs en met de marktprijs (Nord Pool, en EnergyZero voor
+gas via een REST-sensor). Warm water wordt herkend in de 5-minutendata van de gasmeter. Alle aannames zijn helpers (`input_number.heat_*`); hun
 tekst en standaardwaarde staan in de tabel `heat_param`. Het dashboard `/warmte-pomp` toont de
 berekening van één minuut met zijn getallen en elke aanname met hoe hij te verfijnen is.
 De jaarprognose gebruikt het gemeten warmteverlies en een referentiejaar (2019, Open-Meteo,
@@ -402,13 +403,9 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
   prijzen, helpers en dashboard `/zonne-energie`. Fase 5 is voorbereid (2026-10-13): Grott met terugval is getest met een
   nagebootste datalogger, maar nog niet met de echte stick.
   Open: de contracttarieven, de gegevens van de installatie en het interval van de ShineLAN-X.
-- **Warmtepomp** (2026-10-19): gebouwd en live met standaardwaarden (zie *CV-ketel tegen
-  warmtepomp*). Open: de antwoorden van de gebruiker op de vragen in
-  [docs/warmtepomp.md](docs/warmtepomp.md) (via Telegram gesteld), de bevestiging van W1–W7, en
-  een betrouwbaar warmteverlies (pas na een maand stookseizoen).
-- **Telegram-antwoorden voor Claude:** Hermes leest de bot (`getUpdates`), dus Claude kan
-  antwoorden op een vraag die hij rechtstreeks via de Bot-API stuurt niet zelf lezen zonder Hermes
-  te verstoren. Nu: antwoorden als helper in HA, of in een volgende sessie.
+- **Warmtepomp** (2026-10-19): gebouwd en live, met de gegevens van de gebruiker (zie *CV-ketel
+  tegen warmtepomp*). Open: een betrouwbaar gemeten warmteverlies (pas na een maand stookseizoen;
+  tot die tijd geijkt op ~800 m³ per jaar) en het exacte jaarverbruik.
 - **`check_config` geeft exit 0 bij een ongeldige template-optie** (gevonden op 2026-10-13,
   HA 2026.9.4). Hij logt alleen `ERROR:homeassistant.config:Invalid config for 'template' …`.
   `check()` in `martha_ha.py` kijkt alleen naar de exitcode en laat zo'n fout dus door. Na de

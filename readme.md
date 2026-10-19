@@ -405,19 +405,22 @@ ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_heat.py
 
 Het script maakt eerst een back-up. Daarna:
 - legt het de gasmeter van de P1 vast;
-- rolt het `packages/heat.yaml` uit via martha-ha (buitentemperatuur uit de weer-entity, en de
-  SQL-sensoren);
-- maakt het de helpers `input_number.heat_*` aan, met standaardwaarden;
-- haalt het de buitentemperatuur van de laatste 92 dagen op bij Open-Meteo (vraagt internet;
-  zonder internet, of met `--no-backfill`, vult het referentiejaar het gat);
+- rolt het `packages/heat.yaml` uit via martha-ha (buitentemperatuur uit de weer-entity, de
+  gasmarktprijs van EnergyZero en de SQL-sensoren);
+- maakt het de helpers `input_number.heat_*` aan, met standaardwaarden, en ruimt helpers en
+  sensoren op die niet meer gebruikt worden;
+- haalt het de buitentemperatuur van de laatste 92 dagen op bij Open-Meteo, en de gasmarktprijzen
+  sinds de eerste gasdata bij EnergyZero (vraagt internet; zonder internet, of met
+  `--no-backfill`, vult het referentiejaar het gat en ontbreekt de marktprijs tot de REST-sensor hem
+  ophaalt);
 - maakt het het dashboard **Warmtepomp** (`http://martha.local:8123/warmte-pomp`) en rekent het
   alles uit.
 
 Opnieuw draaien kan: bestaande helpers en hun waarden blijven staan.
 
 Daarna, met de hand: vul onder **Warmtepomp → Instellingen** in wat je weet (gasprijs, vaste
-kosten, koken op gas of niet, ketel, offerte) en vul de stroomtarieven in op het dashboard
-Zonnepanelen. Het tabblad **Aannames** laat zien welke waarden nog op hun standaard staan.
+kosten, aanvoertemperatuur, gasverbruik van vorig jaar) en vul de stroomtarieven in op het
+dashboard Zonnepanelen. Het tabblad **Aannames** laat zien welke waarden nog op hun standaard staan.
 
 ## Updaten (offline, beide routes)
 
