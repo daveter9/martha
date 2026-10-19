@@ -393,6 +393,32 @@ blijven binnenkomen.
    **Zonnepanelen → Omvormer** toont het vermogen.
 6. Voeg in het energiedashboard bij **Zonnepanelen** de sensor *Growatt opwek totaal* toe.
 
+### Warmtepomp (CV-ketel tegen warmtepomp)
+
+Ontwerp en rekenmodel: [docs/warmtepomp.md](docs/warmtepomp.md). Doe dit na de zonnepanelen en
+na een `install.sh` met deze versie van de repo (die zet `host/db/heat.sql` en
+`host/db/heat_reference.sql` neer):
+
+```bash
+ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_heat.py
+```
+
+Het script maakt eerst een back-up. Daarna:
+- legt het de gasmeter van de P1 vast;
+- rolt het `packages/heat.yaml` uit via martha-ha (buitentemperatuur uit de weer-entity, en de
+  SQL-sensoren);
+- maakt het de helpers `input_number.heat_*` aan, met standaardwaarden;
+- haalt het de buitentemperatuur van de laatste 92 dagen op bij Open-Meteo (vraagt internet;
+  zonder internet, of met `--no-backfill`, vult het referentiejaar het gat);
+- maakt het het dashboard **Warmtepomp** (`http://martha.local:8123/warmte-pomp`) en rekent het
+  alles uit.
+
+Opnieuw draaien kan: bestaande helpers en hun waarden blijven staan.
+
+Daarna, met de hand: vul onder **Warmtepomp → Instellingen** in wat je weet (gasprijs, vaste
+kosten, koken op gas of niet, ketel, offerte) en vul de stroomtarieven in op het dashboard
+Zonnepanelen. Het tabblad **Aannames** laat zien welke waarden nog op hun standaard staan.
+
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).
