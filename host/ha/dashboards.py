@@ -142,15 +142,19 @@ def collect(ws, token):
         out["heating"] += h["heating"]
         out["dhw"] += h["dhw"]
     # Start screen and overviews: use and costs now and today (heat_home in heat.sql).
+    gas_meter = p1_ids.get("gas_meter_reading")
     home = {"electricity": [(p1_ids.get("current_electricity_usage"), "Nu"),
+                            (p1_ids.get("current_electricity_usage"), "_age:last_reported"),
                             (heat.get("heat_home_elec_today"), "Vandaag"),
                             (heat.get("heat_home_elec_cost_now"), "Kosten nu"),
                             (heat.get("heat_home_elec_cost_today"), "Kosten vandaag")],
             "heating": [(heat.get("heat_home_space_now"), "Nu"),
+                        (gas_meter, "_age:last_changed"),
                         (heat.get("heat_home_space_today"), "Vandaag"),
                         (heat.get("heat_home_space_cost_now"), "Kosten nu"),
                         (heat.get("heat_home_space_cost_today"), "Kosten vandaag")],
             "dhw": [(heat.get("heat_home_dhw_now"), "Nu"),
+                    (gas_meter, "_age:last_changed"),
                     (heat.get("heat_home_dhw_today"), "Vandaag"),
                     (heat.get("heat_home_dhw_cost_now"), "Kosten nu"),
                     (heat.get("heat_home_dhw_cost_today"), "Kosten vandaag")]}
@@ -267,6 +271,16 @@ def value(entity):
             "{%% else %%}{{ v }} {{ u }}{%% endif %%}") % {"e": entity}
 
 
+def ago(entity, attribute):
+    """Jinja: how long ago a state was reported or changed, in seconds, whole minutes or
+    whole hours. It re-renders every minute (now()) and with every state change."""
+    return ("{%% set t = states.%(e)s.%(a)s if states.%(e)s else none %%}"
+            "{%% if t %%}{%% set s = ((now() - t).total_seconds()) | int %%}"
+            "{%% if s < 60 %%}{{ s }} s geleden"
+            "{%% elif s < 7200 %%}{{ s // 60 }} min geleden"
+            "{%% else %%}{{ s // 3600 }} uur geleden{%% endif %%}{%% endif %%}") % {"e": entity, "a": attribute}
+
+
 def now_today(values, horizontal=False):
     """Use and costs now and today (C25), as the user asked:
 
@@ -276,9 +290,12 @@ def now_today(values, horizontal=False):
 
     'values' are (entity_id, name) with the names Nu, Vandaag, Kosten nu, Kosten vandaag."""
     by = {n: e for e, n in values if e}
+    age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
     blocks = []
     for label, use, cost in (("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag")):
         lines = [value(by[k]) for k in (use, cost) if k in by]
+        if label == "Nu" and lines and age:
+            lines.append(f"<small>{ago(*age)}</small>")
         if lines:
             blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
     if not blocks:
