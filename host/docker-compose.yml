@@ -41,6 +41,11 @@ services:
       # (only at first start), leaving the rest for Home Assistant and the agent.
       TIMESCALEDB_TELEMETRY: "off"
       TS_TUNE_MEMORY: 1GB
+    # timescaledb-tune sets max_connections to 25 for 1 GB. Home Assistant alone keeps that
+    # many open (recorder, LTSS and the pool of the SQL sensors), after which psql, pg_dump
+    # and the setup scripts are refused ("too many clients already"). A command-line
+    # setting overrides postgresql.conf, so this also holds for an existing database.
+    command: ["postgres", "-c", "max_connections=100"]
     # Only Home Assistant on this host; from elsewhere use an SSH tunnel.
     ports:
       - "127.0.0.1:5432:5432"

@@ -146,6 +146,11 @@ HA leest en stuurt alle apparaten via zijn integraties. Recorder en LTSS schrijv
   (`ssh -L 5432:127.0.0.1:5432 david@martha.local`). Data in `/opt/homeassistant/postgres`
   (de ouder van `PGDATA`, zoals PostgreSQL 18 aanraadt), op de SSD van martha.
   Telemetrie staat uit, `timescaledb-tune` krijgt 1 GB RAM.
+  **`max_connections = 100`** (als `-c` in `docker-compose.yml`, dus ook voor een bestaande
+  database). `timescaledb-tune` zet bij 1 GB 25, en HA alleen houdt er al zoveel open
+  (Recorder, LTSS en de pool van de SQL-sensoren). Daarna weigerde PostgreSQL elke nieuwe
+  verbinding, ook `psql`, `pg_dump` (back-ups) en de setup-scripts (gevonden op martha,
+  2026-10-19, met 25 open verbindingen van HA).
 - **Wachtwoord:** één keer gegenereerd door `install.sh`, in `/opt/homeassistant/db.env`
   (0600, voor de container) en als `martha_db_url` in `secrets.yaml` (voor HA).
 - **HA-config:** `packages/martha_storage.yaml` (Recorder en LTSS). `install.sh` zet hem
