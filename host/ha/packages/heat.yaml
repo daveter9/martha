@@ -1,4 +1,4 @@
-# Heating: gas boiler versus heat pump (docs/warmtepomp.md). Deployed by host/ha/setup_heat.py
+# Heating: gas boiler versus an all-electric heat pump (docs/warmtepomp.md). Deployed by host/ha/setup_heat.py
 # as packages/heat.yaml (through martha-ha, so it is in the config repository); setup_heat.py
 # fills in the weather entity (__WEATHER__). All functions and tables: host/db/heat.sql.
 #
@@ -21,6 +21,26 @@ template:
         state: "{{ state_attr('__WEATHER__', 'temperature') }}"
         availability: "{{ state_attr('__WEATHER__', 'temperature') is number }}"
 
+# Gas market price per hour from EnergyZero (day-ahead, EUR/m³, without taxes or markup), for
+# the comparison at market prices. The attribute Prices (the last 3 days and tomorrow) goes
+# through LTSS into the table heat_gas_market (trigger heat_capture), so missed hours are
+# filled in on the next successful fetch. Without internet the sensor is unavailable.
+rest:
+  - resource_template: >-
+      https://api.energyzero.nl/v1/energyprices?fromDate={{ (utcnow() - timedelta(days=3)).strftime('%Y-%m-%dT00:00:00.000Z') }}&tillDate={{ (utcnow() + timedelta(days=1)).strftime('%Y-%m-%dT23:59:59.999Z') }}&interval=4&usageType=3&inclBtw=false
+    scan_interval: 3600
+    timeout: 30
+    sensor:
+      - name: Gasprijs markt
+        unique_id: heat_gas_market
+        unit_of_measurement: EUR/m³
+        icon: mdi:meter-gas
+        value_template: >-
+          {% set hour = utcnow().strftime('%Y-%m-%dT%H:00:00Z') %}
+          {{ value_json.Prices | selectattr('readingDate', 'eq', hour) | map(attribute='price') | first | default(none) }}
+        json_attributes:
+          - Prices
+
 sql:
   # --- Running totals since the first gas data -------------------------------------------
   - name: Warmtepomp kosten CV-ketel
@@ -41,14 +61,23 @@ sql:
     column: v
     query: SELECT round(wp::numeric, 4) AS v, round(wp_var::numeric, 2) AS energie FROM heat_totals() LIMIT 1;
 
-  - name: Warmtepomp kosten hybride
-    unique_id: heat_total_hyb
-    icon: mdi:heat-pump
+  - name: Warmtepomp kosten CV-ketel marktprijs
+    unique_id: heat_total_cv_mkt
+    icon: mdi:fire
     unit_of_measurement: EUR
     device_class: monetary
     state_class: total
     column: v
-    query: SELECT round(hyb::numeric, 4) AS v, round(hyb_var::numeric, 2) AS energie FROM heat_totals() LIMIT 1;
+    query: SELECT round(cv_mkt::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Warmtepomp kosten warmtepomp marktprijs
+    unique_id: heat_total_wp_mkt
+    icon: mdi:heat-pump-outline
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(wp_mkt::numeric, 4) AS v FROM heat_totals() LIMIT 1;
 
   - name: Warmtepomp warmtevraag
     unique_id: heat_total_heat
@@ -68,23 +97,14 @@ sql:
     column: v
     query: SELECT round(wp_kwh::numeric, 3) AS v FROM heat_totals() LIMIT 1;
 
-  - name: Warmtepomp stroom hybride
-    unique_id: heat_total_hyb_kwh
-    icon: mdi:lightning-bolt-outline
-    unit_of_measurement: kWh
-    device_class: energy
-    state_class: total
-    column: v
-    query: SELECT round(hyb_kwh::numeric, 3) AS v FROM heat_totals() LIMIT 1;
-
-  - name: Warmtepomp gas hybride
-    unique_id: heat_total_hyb_gas
-    icon: mdi:meter-gas-outline
+  - name: Warmtepomp gas warm water
+    unique_id: heat_total_gas_dhw
+    icon: mdi:shower-head
     unit_of_measurement: m³
     device_class: gas
     state_class: total
     column: v
-    query: SELECT round(hyb_gas::numeric, 3) AS v FROM heat_totals() LIMIT 1;
+    query: SELECT round(gas_dhw::numeric, 3) AS v FROM heat_totals() LIMIT 1;
 
   # --- Results (heat_results, hourly) ----------------------------------------------------
   - name: Warmtepomp besparing per jaar
@@ -92,15 +112,14 @@ sql:
     icon: mdi:calendar-cash
     unit_of_measurement: EUR
     column: v
-    # The state is the saving per year of the all-electric heat pump; the table is an attribute.
+    # The state is the saving per year of the heat pump at contract prices; the table is an attribute.
     query: >-
       SELECT round(f.value::numeric) AS v,
              f.detail AS tabel,
              (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_cv') AS kosten_cv,
              (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_wp') AS kosten_warmtepomp,
-             (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_hyb') AS kosten_hybride,
-             (SELECT round(value::numeric, 1) FROM heat_result WHERE key = 'year_payback_wp') AS terugverdientijd_warmtepomp,
-             (SELECT round(value::numeric, 1) FROM heat_result WHERE key = 'year_payback_hyb') AS terugverdientijd_hybride,
+             (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_cv_mkt') AS kosten_cv_marktprijs,
+             (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_wp_mkt') AS kosten_warmtepomp_marktprijs,
              (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_gas_m3') AS gas_per_jaar,
              (SELECT round(value::numeric, 2) FROM heat_result WHERE key = 'year_scop') AS scop,
              to_char(f.updated AT TIME ZONE 'Europe/Amsterdam', 'YYYY-MM-DD HH24:MI') AS berekend
@@ -114,7 +133,7 @@ sql:
     query: >-
       SELECT round(f.value::numeric) AS v, f.detail AS toelichting,
              (SELECT round(value::numeric, 2) FROM heat_result WHERE key = 'required_kw') AS vermogen_bij_min10_kw,
-             (SELECT round(value::numeric, 2) FROM heat_result WHERE key = 'dhw_measured') AS gas_zonder_verwarming_m3_per_dag
+             (SELECT round(value::numeric, 2) FROM heat_result WHERE key = 'dhw_per_day') AS warm_water_m3_per_dag
       FROM heat_result f WHERE f.key = 'fit' LIMIT 1;
 
   # --- Explanation and assumptions (markdown in an attribute) ------------------------------

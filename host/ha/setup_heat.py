@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Set up the comparison gas boiler versus heat pump in production Home Assistant
-(docs/warmtepomp.md).
+"""Set up the comparison gas boiler versus an all-electric heat pump in production Home
+Assistant (docs/warmtepomp.md).
 
 Run as root on martha, after install.sh (which applies host/db/heat.sql), setup_p1.py and
 setup_solar.py:
@@ -14,10 +14,13 @@ Idempotent; each run:
   4. deploys packages/heat.yaml through martha-ha (check_config, backup, restart, health
      check, automatic rollback), with the weather entity filled in;
   5. creates the helpers input_number.heat_* from the table heat_param that do not exist
-     yet; existing helpers and their values are left alone;
-  6. writes the outdoor temperature sensor to heat_entity;
+     yet (existing helpers and their values are left alone), and removes helpers whose
+     parameter is gone, plus registry entries of sensors no longer in the package;
+  6. writes the outdoor temperature and gas market price sensors to heat_entity;
   7. fetches the hourly outdoor temperature of the last 92 days from Open-Meteo into
-     heat_weather (needs internet; skipped with a warning without it, or with --no-backfill);
+     heat_weather, and the gas market prices since the first gas data from EnergyZero into
+     heat_gas_market (needs internet; skipped with a warning without it, or with
+     --no-backfill);
   8. writes the dashboard 'Warmtepomp' (/warmte-pomp);
   9. calculates all minutes since the first gas data, and the forecast.
 """
@@ -40,16 +43,19 @@ TEMPLATES = "/usr/local/lib/martha/heat"   # host/ha/packages/heat.yaml
 PACKAGE = "packages/heat.yaml"
 OPEN_METEO = ("https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
               "&hourly=temperature_2m&past_days=92&forecast_days=1&timezone=UTC")
-GROUPS = [   # dashboard 'Instellingen': title, kinds or keys
-    ("Prijzen (gelden vanaf het moment van wijzigen)", "price"),
-    ("Huis, ketel en gebruik (geldt voor alle historie)",
-     ["gas_kwh_per_m3", "boiler_eff_heating", "boiler_eff_dhw", "dhw_m3_day", "cooking_m3_day",
-      "cooking_kwh_per_m3", "heating_limit"]),
+ENERGYZERO = ("https://api.energyzero.nl/v1/energyprices?fromDate={start}T00:00:00.000Z"
+              "&tillDate={end}T23:59:59.999Z&interval=4&usageType=3&inclBtw=false")
+GROUPS = [   # dashboard 'Instellingen': title, keys
+    ("Contract (geldt vanaf het moment van wijzigen)",
+     ["gas_price", "electricity_price", "gas_fixed_month", "maint_boiler", "maint_hp"]),
+    ("Marktprijs (geldt vanaf het moment van wijzigen)",
+     ["market_gas_markup", "gas_energy_tax", "market_elec_markup", "elec_energy_tax", "vat"]),
+    ("Huis en ketel (geldt voor alle historie)",
+     ["gas_kwh_per_m3", "boiler_eff_heating", "boiler_eff_dhw", "dhw_min_kw", "dhw_max_minutes",
+      "heating_limit", "gas_last_year"]),
     ("Warmtepomp (geldt voor alle historie)",
      ["supply_design", "supply_min", "carnot_eff", "cop_a7w35", "cop_max", "defrost_loss",
-      "dhw_temp", "hp_capacity", "hybrid_capacity"]),
-    ("Investering (alleen voor de prognose)", "investment"),
-    ("Controle", "check"),
+      "dhw_temp", "hp_capacity"]),
 ]
 
 
@@ -117,8 +123,13 @@ def deploy_package(weather):
 
 
 def create_helpers(ws, rows):
-    """Create the helpers that are missing; never change existing ones or their values."""
+    """Create the helpers that are missing; never change existing ones or their values.
+    Remove the heat_* helpers whose parameter no longer exists."""
     existing = {i["id"] for i in ws.call("input_number/list")}
+    keys = {f"heat_{p['key']}" for p in rows}
+    for item_id in sorted(i for i in existing if i.startswith("heat_") and i not in keys):
+        ws.call("input_number/delete", input_number_id=item_id)
+        m.log(f"removed helper input_number.{item_id} (parameter no longer used)")
     created = 0
     for p in rows:
         item_id = f"heat_{p['key']}"
@@ -134,16 +145,35 @@ def create_helpers(ws, rows):
     m.log(f"created {created} helpers" if created else "helpers already present")
 
 
+PLATFORMS = ("sql", "template", "rest")
+
+
+def package_unique_ids():
+    with open(os.path.join(TEMPLATES, "heat.yaml")) as f:
+        return set(re.findall(r"unique_id:\s*(heat_[a-z0-9_]+)", f.read()))
+
+
 def heat_entities(ws, wait=30):
     """Entity ids of the sensors in packages/heat.yaml, by unique_id."""
     deadline = time.monotonic() + wait
     while True:
         ids = {e["unique_id"]: e["entity_id"] for e in ws.call("config/entity_registry/list")
-               if e.get("platform") in ("sql", "template")
+               if e.get("platform") in PLATFORMS
                and str(e.get("unique_id", "")).startswith("heat_")}
-        if "heat_outdoor_temperature" in ids or time.monotonic() > deadline:
+        if {"heat_outdoor_temperature", "heat_gas_market"} <= set(ids) or time.monotonic() > deadline:
             return ids
         time.sleep(2)
+
+
+def remove_old_sensors(ws):
+    """Registry entries of heat_* sensors that are no longer in the package (they would stay
+    'unavailable' forever)."""
+    wanted = package_unique_ids()
+    for e in ws.call("config/entity_registry/list"):
+        uid = str(e.get("unique_id", ""))
+        if e.get("platform") in PLATFORMS and uid.startswith("heat_") and uid not in wanted:
+            ws.call("config/entity_registry/remove", entity_id=e["entity_id"])
+            m.log(f"removed {e['entity_id']} (no longer in {PACKAGE})")
 
 
 def backfill_weather(token):
@@ -170,6 +200,30 @@ def backfill_weather(token):
     m.log(f"Open-Meteo: {len(rows)} hourly temperatures ({rows[0][0]} .. {rows[-1][0]})")
 
 
+def backfill_gas_market():
+    """Hourly gas market prices since the first gas data from EnergyZero (the REST sensor only
+    covers the last 3 days)."""
+    start = m.psql("SELECT to_char(coalesce(heat_first(), now()) - INTERVAL '1 day', 'YYYY-MM-DD')")
+    end = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 86400))
+    try:
+        with urllib.request.urlopen(ENERGYZERO.format(start=start, end=end), timeout=30) as r:
+            prices = json.load(r)["Prices"]
+    except (OSError, ValueError, KeyError) as e:
+        m.log(f"WARNING: no EnergyZero gas prices ({e}); the REST sensor fills them from now on. "
+              "Run again when there is internet.")
+        return
+    rows = [(p["readingDate"], float(p["price"])) for p in prices
+            if re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:00:00Z", p.get("readingDate", ""))
+            and isinstance(p.get("price"), (int, float))]
+    if not rows:
+        m.log("WARNING: EnergyZero returned no gas prices")
+        return
+    m.psql("INSERT INTO heat_gas_market (time, price) VALUES "
+           + ", ".join(f"('{t}', {v})" for t, v in rows)
+           + " ON CONFLICT (time) DO UPDATE SET price = EXCLUDED.price, fetched = now()")
+    m.log(f"EnergyZero: {len(rows)} hourly gas prices ({rows[0][0]} .. {rows[-1][0]})")
+
+
 def dashboard(ids, rows):
     def e(uid):
         return ids.get(uid)
@@ -187,30 +241,35 @@ def dashboard(ids, rows):
         return {"type": "markdown", "title": title,
                 "content": f"{{{{ state_attr('{e(uid)}', '{attribute}') }}}}"}
 
-    costs = ["heat_total_cv", "heat_total_wp", "heat_total_hyb"]
+    costs = ["heat_total_cv", "heat_total_wp"]
+    costs_mkt = ["heat_total_cv_mkt", "heat_total_wp_mkt"]
     comparison = [
         {"type": "energy-date-selection"},
-        {"type": "grid", "columns": 3, "square": False, "cards": [
-            stat("heat_total_cv", "CV-ketel"),
-            stat("heat_total_wp", "Warmtepomp"),
-            stat("heat_total_hyb", "Hybride"),
+        {"type": "grid", "columns": 2, "square": False, "cards": [
+            stat("heat_total_cv", "CV-ketel (contract)"),
+            stat("heat_total_wp", "Warmtepomp (contract)"),
+            stat("heat_total_cv_mkt", "CV-ketel (marktprijs)"),
+            stat("heat_total_wp_mkt", "Warmtepomp (marktprijs)"),
         ]},
         {"type": "statistics-graph", "title": "Kosten in de gekozen periode", "chart_type": "bar",
-         "entities": [e(u) for u in costs if e(u)], "stat_types": ["change"],
+         "entities": [e(u) for u in costs + costs_mkt if e(u)], "stat_types": ["change"],
          "energy_date_selection": True},
         {"type": "markdown", "content":
-            "Wat de verwarming, het warme water en het koken **werkelijk** kosten met de CV-ketel, "
-            "en wat precies dezelfde warmte zou kosten met een **volledig elektrische** warmtepomp "
-            "(gasaansluiting eraf, koken op inductie) of een **hybride** warmtepomp. Per minuut berekend "
-            "uit het gasverbruik van de P1-meter en de buitentemperatuur, inclusief vaste kosten van de "
-            "gasaansluiting en onderhoud. Hoe: tab *Berekening*. Op welke aannames: tab *Aannames*."},
-        graph("Kosten per dag (30 dagen)", costs, "day", 30),
-        graph("Kosten per maand (1 jaar)", costs, "month", 365),
-        graph("Warmte en stroom per dag (30 dagen)",
-              ["heat_total_heat", "heat_total_wp_kwh", "heat_total_hyb_kwh"], "day", 30),
+            "Wat verwarming en warm water **werkelijk** kosten met de CV-ketel, en wat precies dezelfde "
+            "warmte zou kosten met een **volledig elektrische** warmtepomp (gasaansluiting eraf). Per "
+            "minuut berekend uit het gasverbruik van de P1-meter en de buitentemperatuur, inclusief de "
+            "vaste kosten van de gasaansluiting en onderhoud. Twee keer: met je **contractprijzen**, en "
+            "met de **marktprijs** van een dynamisch contract (day-ahead plus opslag, energiebelasting en "
+            "btw). Hoe: tab *Berekening*. Op welke aannames: tab *Aannames*."},
+        graph("Kosten per dag, contract (30 dagen)", costs, "day", 30),
+        graph("Kosten per dag, marktprijs (30 dagen)", costs_mkt, "day", 30),
+        graph("Kosten per maand (1 jaar)", costs + costs_mkt, "month", 365),
+        graph("Warmte, gas voor warm water en stroom per dag (30 dagen)",
+              ["heat_total_heat", "heat_total_gas_dhw", "heat_total_wp_kwh"], "day", 30),
         {"type": "entities", "title": "Tot nu toe", "entities": [
-            e("heat_total_cv"), e("heat_total_wp"), e("heat_total_hyb"), e("heat_total_heat"),
-            e("heat_total_wp_kwh"), e("heat_total_hyb_kwh"), e("heat_total_hyb_gas")]},
+            e("heat_total_cv"), e("heat_total_wp"), e("heat_total_cv_mkt"), e("heat_total_wp_mkt"),
+            e("heat_total_heat"), e("heat_total_gas_dhw"), e("heat_total_wp_kwh"),
+            e("heat_gas_market")]},
     ]
     calculation = [
         md("Hoe één minuut wordt berekend", "heat_explain", "uitleg"),
@@ -225,8 +284,8 @@ def dashboard(ids, rows):
             e("heat_loss"),
             {"type": "attribute", "entity": e("heat_loss"), "attribute": "vermogen_bij_min10_kw",
              "name": "Benodigd vermogen bij -10 °C", "suffix": "kW"},
-            {"type": "attribute", "entity": e("heat_loss"), "attribute": "gas_zonder_verwarming_m3_per_dag",
-             "name": "Gemeten gas op dagen zonder verwarming", "suffix": "m³/dag"},
+            {"type": "attribute", "entity": e("heat_loss"), "attribute": "warm_water_m3_per_dag",
+             "name": "Gas voor warm water (gemeten)", "suffix": "m³/dag"},
             {"type": "attribute", "entity": e("heat_loss"), "attribute": "toelichting",
              "name": "Toelichting"},
         ]},
@@ -234,22 +293,24 @@ def dashboard(ids, rows):
             "Het **warmteverlies** (W/K) is de warmte die het huis per uur verliest per graad verschil "
             "tussen binnen en buiten. Het volgt uit de metingen: de warmte voor verwarming per dag gedeeld "
             "door de graaduren (stookgrens min buitentemperatuur, opgeteld per minuut). Hoe meer koude en "
-            "zachte dagen, hoe betrouwbaarder (R² naar 1). De prognose rekent daarmee een heel jaar door "
-            "met de uurtemperaturen van 2019, het jaar dat het dichtst bij het gemiddelde van 2016-2025 ligt."},
+            "zachte dagen, hoe betrouwbaarder (R² naar 1). Zolang dat nog niet zo is, wordt het geijkt op "
+            "je gasverbruik van vorig jaar. De prognose rekent daarmee een heel jaar door met de "
+            "uurtemperaturen van 2019, het jaar dat het dichtst bij het gemiddelde van 2016-2025 ligt."},
     ]
     assumptions = [md("Aannames en wat je kunt verfijnen", "heat_assumptions", "tabel")]
 
-    by_key = {p["key"]: p for p in rows}
+    by_key = {p["key"] for p in rows}
+    grouped = {k for _, keys in GROUPS for k in keys}
+    missing = sorted(by_key - grouped)
     settings = []
-    for title, sel in GROUPS:
-        keys = [p["key"] for p in rows if p["kind"] == sel] if isinstance(sel, str) else \
-               [k for k in sel if k in by_key]
+    for title, keys in GROUPS + ([("Overig", missing)] if missing else []):
         settings.append({"type": "entities", "title": title,
-                         "entities": [f"input_number.heat_{k}" for k in keys]})
+                         "entities": [f"input_number.heat_{k}" for k in keys if k in by_key]})
     settings.append({"type": "markdown", "content":
-        "De stroomprijs komt van **Inkoopprijs normaal/dal** op het dashboard Zonnepanelen; zolang "
-        "die op 0 staan, geldt *Stroomprijs als het contract ontbreekt*. Na een wijziging rekent "
-        "martha binnen 5 minuten alles opnieuw uit."})
+        "De stroomprijs van het contract komt van **Inkoopprijs normaal/dal** op het dashboard "
+        "Zonnepanelen; zolang die op 0 staan (en voor de tijd dat ze dat stonden), geldt *Stroomprijs "
+        "contract als die bij Zonnepanelen ontbreekt*. Na een wijziging rekent martha binnen 5 minuten "
+        "alles opnieuw uit."})
 
     def clean(cards):
         out = []
@@ -278,18 +339,18 @@ FORMULAS = """\
 | Stap | Formule |
 |---|---|
 | Gas per minuut | meterstap / 5, over de 5 minuten vóór de melding |
-| Koken, warm water | vaste m³ per dag (naar rato van het deel van de dag); de rest is verwarming |
+| Warm water | een melding van minstens 8 kW, hooguit 20 minuten achter elkaar, of een losse melding; de rest is verwarming |
 | Nuttige warmte | gas × 9,769 kWh/m³ × rendement ketel (verwarming of warm water) |
 | Graaduren | max(0, stookgrens − buiten) / 60, per minuut |
 | Stooklijn | aanvoer = min + (ontwerp − min) × (stookgrens − buiten) / (stookgrens + 10) |
 | COP | Carnot-rendement × (aanvoer + 273,15) / max(aanvoer − buiten, 5) × (1 − ontdooien onder 6 °C), tussen 1 en het maximum |
-| Warmtepomp | verwarming / COP + warm water / COP warm water + koken × 4,4 kWh/m³; boven het vermogen per uur: element (COP 1) |
-| Hybride | verwarming tot het vermogen per uur, alleen als stroomprijs / COP < gasprijs / (9,769 × rendement); de rest op gas |
-| Stroomkosten | eerst uit het zonne-overschot van die minuut (gemiste terugleververgoeding), de rest × stroomprijs (normaal/dal) |
+| Warmtepomp | verwarming / COP + warm water / COP warm water; boven het vermogen per uur: element (COP 1) |
+| Stroomkosten | eerst uit het zonne-overschot van die minuut (gemiste terugleververgoeding), de rest × stroomprijs |
 | Gaskosten | m³ × gasprijs |
+| Marktprijs | (day-ahead-prijs + opslag + energiebelasting) × (1 + btw); stroom per kwartier (Nord Pool), gas per uur (EnergyZero) |
 | Vaste kosten | gasaansluiting per maand / minuten in de maand; onderhoud per jaar / minuten in het jaar |
-| Warmteverlies H | Σ warmte verwarming / Σ graaduren over volledige, gemeten dagen |
-| Prognose | per uur van 2019: H × max(0, stookgrens − buiten), plus warm water en koken per dag |
+| Warmteverlies H | Σ warmte verwarming / Σ graaduren over volledige, gemeten dagen; zolang onzeker geijkt op het jaarverbruik |
+| Prognose | per uur van 2019: H × max(0, stookgrens − buiten), plus het gemeten warm water per dag |
 """
 
 
@@ -330,16 +391,19 @@ def main():
     ws = m.WebSocket(m.HA_URL, token)
     try:
         create_helpers(ws, rows)
+        remove_old_sensors(ws)
         ids = heat_entities(ws)
-        if "heat_outdoor_temperature" not in ids:
-            raise m.Error("sensor heat_outdoor_temperature not found; check packages/heat.yaml")
-        set_role("outdoor_temp", ids["heat_outdoor_temperature"])
+        for uid, role in (("heat_outdoor_temperature", "outdoor_temp"), ("heat_gas_market", "gas_market")):
+            if uid not in ids:
+                raise m.Error(f"sensor {uid} not found; check packages/heat.yaml")
+            set_role(role, ids[uid])
         m.log(f"{len(ids)} heat sensors: " + ", ".join(sorted(ids.values())))
         write_dashboard(ws, ids, rows)
     finally:
         ws.close()
     if not a.no_backfill:
         backfill_weather(token)
+        backfill_gas_market()
     # Calculate everything now instead of waiting for the job.
     m.psql("CALL heat_job(0, NULL)")
     m.psql("SELECT heat_results()")
