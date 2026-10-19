@@ -21,7 +21,8 @@ Idempotent; each run:
      heat_weather, and the gas market prices since the first gas data from EnergyZero into
      heat_gas_market (needs internet; skipped with a warning without it, or with
      --no-backfill);
-  8. writes the dashboard 'Warmtepomp' (/warmte-pomp);
+  8. writes the dashboards per domain (host/ha/dashboards.py): the comparison on
+     Verwarming, hot water on Tapwater;
   9. calculates all minutes since the first gas data, and the forecast.
 """
 
@@ -35,10 +36,10 @@ import urllib.request
 
 sys.path.insert(0, "/usr/local/lib/martha")
 import martha_ha as m  # noqa: E402
+import dashboards  # noqa: E402
 import setup_p1  # noqa: E402
 import setup_solar  # noqa: E402
 
-DASHBOARD = "warmte-pomp"   # HA requires a hyphen in a dashboard URL
 TEMPLATES = "/usr/local/lib/martha/heat"   # host/ha/packages/heat.yaml
 PACKAGE = "packages/heat.yaml"
 OPEN_METEO = ("https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
@@ -51,12 +52,12 @@ GROUPS = [   # dashboard 'Instellingen': title, keys
     ("Marktprijs (geldt vanaf het moment van wijzigen)",
      ["market_gas_markup", "gas_energy_tax", "market_elec_markup", "elec_energy_tax", "vat"]),
     ("Huis en ketel (geldt voor alle historie)",
-     ["gas_kwh_per_m3", "boiler_eff_heating", "boiler_eff_dhw", "dhw_min_kw", "dhw_max_minutes",
-      "heating_limit", "gas_last_year"]),
+     ["gas_kwh_per_m3", "boiler_eff_heating", "heating_limit", "gas_last_year"]),
     ("Warmtepomp (geldt voor alle historie)",
      ["supply_design", "supply_min", "carnot_eff", "cop_a7w35", "cop_max", "defrost_loss",
-      "dhw_temp", "hp_capacity"]),
+      "hp_capacity"]),
 ]
+DHW_KEYS = ["dhw_min_kw", "dhw_max_minutes", "boiler_eff_dhw", "dhw_temp"]   # on Tapwater
 
 
 def check_schema():
@@ -123,17 +124,22 @@ def deploy_package(weather):
 
 
 def create_helpers(ws, rows):
-    """Create the helpers that are missing; never change existing ones or their values.
+    """Create the helpers that are missing; never change the values of existing ones (only
+    their display name, to match the label).
     Remove the heat_* helpers whose parameter no longer exists."""
     existing = {i["id"] for i in ws.call("input_number/list")}
     keys = {f"heat_{p['key']}" for p in rows}
     for item_id in sorted(i for i in existing if i.startswith("heat_") and i not in keys):
         ws.call("input_number/delete", input_number_id=item_id)
         m.log(f"removed helper input_number.{item_id} (parameter no longer used)")
+    names = {e["entity_id"]: e.get("name") for e in ws.call("config/entity_registry/list")}
     created = 0
     for p in rows:
         item_id = f"heat_{p['key']}"
         if item_id in existing:
+            # Keep the display name in step with the label; the value is left alone.
+            if names.get(f"input_number.{item_id}") != p["label"]:
+                setup_solar.rename(ws, f"input_number.{item_id}", p["label"])
             continue
         args = dict(name=item_id, min=p["min"], max=p["max"], step=p["step"],
                     initial=p["default_val"], mode="box", icon="mdi:heat-pump-outline")
@@ -224,7 +230,9 @@ def backfill_gas_market():
     m.log(f"EnergyZero: {len(rows)} hourly gas prices ({rows[0][0]} .. {rows[-1][0]})")
 
 
-def dashboard(ids, rows):
+def views(ids, rows):
+    """The heat views: the comparison on the dashboard Verwarming, hot water on Tapwater
+    (host/ha/dashboards.py)."""
     def e(uid):
         return ids.get(uid)
 
@@ -300,15 +308,37 @@ def dashboard(ids, rows):
     assumptions = [md("Aannames en wat je kunt verfijnen", "heat_assumptions", "tabel")]
 
     by_key = {p["key"] for p in rows}
-    grouped = {k for _, keys in GROUPS for k in keys}
+    dhw = [
+        {"type": "energy-date-selection"},
+        stat("heat_total_gas_dhw", "Gas voor warm water"),
+        {"type": "statistics-graph", "title": "Gas voor warm water in de gekozen periode",
+         "chart_type": "bar", "entities": [e("heat_total_gas_dhw")], "stat_types": ["change"],
+         "energy_date_selection": True},
+        graph("Gas voor warm water per dag (30 dagen)", ["heat_total_gas_dhw"], "day", 30),
+        graph("Gas voor warm water per maand (1 jaar)", ["heat_total_gas_dhw"], "month", 365),
+        {"type": "entities", "title": "Tot nu toe", "entities": [
+            e("heat_total_gas_dhw"),
+            {"type": "attribute", "entity": e("heat_loss"), "attribute": "warm_water_m3_per_dag",
+             "name": "Gemiddeld per dag", "suffix": "m³/dag"}]},
+        {"type": "markdown", "content":
+            "Het gas voor **warm water** (douchen, kraan) wordt afgeleid uit je werkelijke verbruik: de "
+            "combiketel stookt voor tapwater kort en vol. Een reeks gasmeldingen vanaf het ingestelde "
+            "*vermogen* die niet langer duurt dan *hooguit zo lang*, of een losse melding, telt als warm "
+            "water; de rest is verwarming. De kosten van warm water zitten in de vergelijking op het "
+            "dashboard *Verwarming*; de warmtepomp maakt het warm water met de COP bij de ingestelde "
+            "*temperatuur warm water*."},
+        {"type": "entities", "title": "Herkenning en rendement (geldt voor alle historie)",
+         "entities": [f"input_number.heat_{k}" for k in DHW_KEYS if k in by_key]},
+    ]
+    grouped = {k for _, keys in GROUPS for k in keys} | set(DHW_KEYS)
     missing = sorted(by_key - grouped)
     settings = []
     for title, keys in GROUPS + ([("Overig", missing)] if missing else []):
         settings.append({"type": "entities", "title": title,
                          "entities": [f"input_number.heat_{k}" for k in keys if k in by_key]})
     settings.append({"type": "markdown", "content":
-        "De stroomprijs van het contract komt van **Inkoopprijs normaal/dal** op het dashboard "
-        "Zonnepanelen; zolang die op 0 staan (en voor de tijd dat ze dat stonden), geldt *Stroomprijs "
+        "De stroomprijs van het contract komt van **Inkoopprijs normaal/dal** (dashboard "
+        "Elektriciteit, tab Instellingen); zolang die op 0 staan (en voor de tijd dat ze dat stonden), geldt *Stroomprijs "
         "contract als die bij Zonnepanelen ontbreekt*. Na een wijziging rekent martha binnen 5 minuten "
         "alles opnieuw uit."})
 
@@ -326,13 +356,16 @@ def dashboard(ids, rows):
             out.append(c)
         return out
 
-    views = [("Vergelijking", "vergelijking", "mdi:scale-balance", comparison),
-             ("Berekening", "berekening", "mdi:calculator-variant-outline", calculation),
-             ("Prognose", "prognose", "mdi:calendar-cash", forecast),
-             ("Aannames", "aannames", "mdi:clipboard-list-outline", assumptions),
-             ("Instellingen", "instellingen", "mdi:cog", settings)]
-    return {"title": "Warmtepomp",
-            "views": [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in views]}
+    if not ids:
+        return {"heating": [], "dhw": []}
+    heating = [("Warmtepomp", "warmtepomp", "mdi:scale-balance", comparison),
+               ("Berekening", "berekening", "mdi:calculator-variant-outline", calculation),
+               ("Prognose", "prognose", "mdi:calendar-cash", forecast),
+               ("Aannames", "aannames", "mdi:clipboard-list-outline", assumptions),
+               ("Instellingen", "instellingen", "mdi:cog", settings)]
+    return {"heating": [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in heating],
+            "dhw": [{"title": "Tapwater", "path": "tapwater", "icon": "mdi:shower-head",
+                     "cards": clean(dhw)}]}
 
 
 FORMULAS = """\
@@ -352,15 +385,6 @@ FORMULAS = """\
 | Warmteverlies H | Σ warmte verwarming / Σ graaduren over volledige, gemeten dagen; zolang onzeker geijkt op het jaarverbruik |
 | Prognose | per uur van 2019: H × max(0, stookgrens − buiten), plus het gemeten warm water per dag |
 """
-
-
-def write_dashboard(ws, ids, rows):
-    if not any(d["url_path"] == DASHBOARD for d in ws.call("lovelace/dashboards/list")):
-        ws.call("lovelace/dashboards/create", url_path=DASHBOARD, title="Warmtepomp",
-                icon="mdi:heat-pump-outline", show_in_sidebar=True, require_admin=False,
-                mode="storage")
-    ws.call("lovelace/config/save", url_path=DASHBOARD, config=dashboard(ids, rows))
-    m.log(f"dashboard: {m.HA_URL}/{DASHBOARD}")
 
 
 def main():
@@ -398,7 +422,7 @@ def main():
                 raise m.Error(f"sensor {uid} not found; check packages/heat.yaml")
             set_role(role, ids[uid])
         m.log(f"{len(ids)} heat sensors: " + ", ".join(sorted(ids.values())))
-        write_dashboard(ws, ids, rows)
+        dashboards.write(ws, token)
     finally:
         ws.close()
     if not a.no_backfill:

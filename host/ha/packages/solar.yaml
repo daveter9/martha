@@ -4,7 +4,7 @@
 #
 # The SQL sensors read the recorder's database (no db_url) and poll every 30 seconds, so
 # they only read stored results or cheap functions. The running totals (state_class total)
-# become long-term statistics in HA; the dashboard 'Zonnepanelen' shows their change per
+# become long-term statistics in HA; the dashboard 'Elektriciteit' shows their change per
 # day, week, month, year or a chosen period. They lag up to ~5 minutes (solar_job).
 # Totals that need the inverter (self-use) stay 'unknown' until phase 5.
 

@@ -330,8 +330,8 @@ ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_p1.py
 
 Het script maakt eerst een back-up. Daarna voegt het de DSMR-integratie toe (DSMR 5, op de enige
 USB-seriële adapter; een andere geef je op met `--port`) en zet het het update-interval op
-10 seconden (`--interval`). Ook zet het alle sensoren van de meter aan, en maakt het het dashboard
-**P1-meter** (`http://martha.local:8123/p1-meter`) met grafieken. Gas staat erin als lijn per 5 minuten over de laatste 24 uur, zo vaak als de meter hem doorgeeft. Opnieuw draaien kan; het
+10 seconden (`--interval`). Ook zet het alle sensoren van de meter aan, en zet het de grafieken op de
+dashboards **Elektriciteit** (tab *Meter*, `http://martha.local:8123/huis-elektriciteit`) en **Verwarming** (tab *Gas*, `http://martha.local:8123/huis-verwarming`). Gas staat erin als lijn per 5 minuten over de laatste 24 uur, zo vaak als de meter hem doorgeeft. Opnieuw draaien kan; het
 dashboard wordt dan opnieuw geschreven. LTSS slaat alle sensoren op, en `ltss_1m` houdt per
 minuut gemiddelde, minimum, maximum en laatste waarde voor altijd vast.
 
@@ -352,7 +352,7 @@ Het script maakt eerst een back-up. Daarna:
   waarschuwing en draai je het later opnieuw);
 - rolt het `packages/solar.yaml` en `packages/solar_prices.yaml` uit via martha-ha;
 - maakt het de helpers aan, met startdatum 2026-10-23 (`--start`);
-- maakt het het dashboard **Zonnepanelen** (`http://martha.local:8123/zonne-energie`).
+- zet het de tabs van de zonnepanelen op het dashboard **Elektriciteit** (`http://martha.local:8123/huis-elektriciteit`).
 
 Opnieuw draaien kan: bestaande helpers en hun waarden blijven staan, het dashboard wordt
 opnieuw geschreven.
@@ -413,14 +413,14 @@ Het script maakt eerst een back-up. Daarna:
   sinds de eerste gasdata bij EnergyZero (vraagt internet; zonder internet, of met
   `--no-backfill`, vult het referentiejaar het gat en ontbreekt de marktprijs tot de REST-sensor hem
   ophaalt);
-- maakt het het dashboard **Warmtepomp** (`http://martha.local:8123/warmte-pomp`) en rekent het
-  alles uit.
+- zet het de vergelijking op het dashboard **Verwarming** (`http://martha.local:8123/huis-verwarming`) en het
+  warm water op **Tapwater** (`http://martha.local:8123/huis-tapwater`), en rekent het alles uit.
 
 Opnieuw draaien kan: bestaande helpers en hun waarden blijven staan.
 
-Daarna, met de hand: vul onder **Warmtepomp → Instellingen** in wat je weet (gasprijs, vaste
-kosten, aanvoertemperatuur, gasverbruik van vorig jaar) en vul de stroomtarieven in op het
-dashboard Zonnepanelen. Het tabblad **Aannames** laat zien welke waarden nog op hun standaard staan.
+Daarna, met de hand: vul onder **Verwarming → Instellingen** in wat je weet (gasprijs, vaste
+kosten, aanvoertemperatuur, gasverbruik van vorig jaar) en vul de stroomtarieven in onder
+**Elektriciteit → Instellingen**. Het tabblad **Aannames** laat zien welke waarden nog op hun standaard staan.
 
 ## Updaten (offline, beide routes)
 

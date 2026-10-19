@@ -73,9 +73,9 @@ INSERT INTO heat_param (key, kind, label, unit, min, max, step, default_val, sor
 ('gas_price', 'price', 'Gasprijs contract (all-in)', 'EUR/m³', 0, 10, 0.0001, 1.48, 10,
  'Prijs per m³ van je contract, inclusief energiebelasting en btw. Standaard: landelijk gemiddelde 2026 (Energievergelijk.nl, augustus 2026).',
  'De variabele gasprijs uit je contract.'),
-('electricity_price', 'price', 'Stroomprijs contract als die bij Zonnepanelen ontbreekt', 'EUR/kWh', 0, 2, 0.0001, 0.28, 11,
- 'Alleen gebruikt zolang Inkoopprijs normaal/dal op het dashboard Zonnepanelen op 0 staan (of voordat ze werden ingevuld). Standaard: landelijk gemiddelde 2026.',
- 'Je contractprijs; vul hem ook in als Inkoopprijs normaal en dal bij Zonnepanelen.'),
+('electricity_price', 'price', 'Stroomprijs contract als die bij Elektriciteit ontbreekt', 'EUR/kWh', 0, 2, 0.0001, 0.28, 11,
+ 'Alleen gebruikt zolang Inkoopprijs normaal/dal (dashboard Elektriciteit, tab Instellingen) op 0 staan (of voordat ze werden ingevuld). Standaard: landelijk gemiddelde 2026.',
+ 'Je contractprijs; vul hem ook in als Inkoopprijs normaal en dal op het dashboard Elektriciteit (tab Instellingen).'),
 ('gas_fixed_month', 'price', 'Vaste kosten gasaansluiting per maand', 'EUR', 0, 200, 0.01, 25, 12,
  'Vaste leveringskosten van de leverancier plus netbeheerkosten gas, incl. btw. Vervallen met een warmtepomp (gasaansluiting eraf). Standaard: schatting.',
  'Staat op je jaarafrekening: vaste leveringskosten gas + netbeheerkosten gas.'),
@@ -1067,7 +1067,7 @@ E'### Minuut %s\n\n'
         round(v_cap::numeric, 1)::text || CASE WHEN heat_param_now('hp_capacity') > 0 THEN '' ELSE ' (automatisch)' END,
         to_char(h.p_gas, 'FM0.0000'), to_char(h.p_elec, 'FM0.0000'),
         CASE WHEN h.tariff = 'low' THEN 'dal' ELSE 'normaal' END,
-        CASE WHEN h.p_elec_source = 'contract' THEN 'contract' ELSE 'helper: contract bij Zonnepanelen niet ingevuld' END,
+        CASE WHEN h.p_elec_source = 'contract' THEN 'contract' ELSE 'helper: contract bij Elektriciteit niet ingevuld' END,
         coalesce(to_char(h.p_gas_mkt, 'FM0.0000'), 'onbekend'), coalesce(to_char(h.p_elec_mkt, 'FM0.0000'), 'onbekend'),
         to_char(h.export_kwh, fmt), to_char(h.p_export, 'FM0.0000'),
         to_char(h.cv_cost, eur), coalesce(to_char(h.cv_cost_mkt, eur), '–'), to_char(h.cv_fixed, eur),
@@ -1111,8 +1111,8 @@ BEGIN
           WHERE minute > now() - INTERVAL '30 days' GROUP BY 1) s;
     SELECT value, detail INTO v_dhw FROM heat_result WHERE key = 'dhw_per_day';
     v_elec := CASE WHEN solar_setting_now('import_normal') > 0
-                   THEN 'Inkoopprijs normaal/dal van het dashboard Zonnepanelen; daarvoor de helper Stroomprijs contract'
-                   ELSE '**helper** (Inkoopprijs normaal/dal op het dashboard Zonnepanelen staan op 0)' END;
+                   THEN 'Inkoopprijs normaal/dal (dashboard Elektriciteit); daarvoor de helper Stroomprijs contract'
+                   ELSE '**helper** (Inkoopprijs normaal/dal op het dashboard Elektriciteit staan op 0)' END;
 
     md := format(
 E'### Datakwaliteit\n\n'

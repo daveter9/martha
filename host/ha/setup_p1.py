@@ -12,7 +12,8 @@ Idempotent; each run:
   3. sets the update interval (seconds between states written to the recorder and LTSS);
   4. enables every sensor of the meter, including those HA disables by default
      (voltage, current, power per phase, power failures, sags and swells);
-  5. writes the dashboard 'P1-meter' (/p1-meter) with graphs of all those sensors.
+  5. writes the dashboards per domain (host/ha/dashboards.py): electricity on
+     Elektriciteit, gas on Verwarming.
 
 Storage is not configured here: LTSS stores every sensor.* state, and ltss_1m keeps a
 row per minute forever (host/db/timescale.sql).
@@ -26,8 +27,8 @@ import time
 
 sys.path.insert(0, "/usr/local/lib/martha")
 import martha_ha as m  # noqa: E402
+import dashboards  # noqa: E402
 
-DASHBOARD = "p1-meter"
 DSMR_VERSION = "5"   # Landis+Gyr E360: DSMR 5.0 (1-3:0.2.8(50))
 
 
@@ -121,8 +122,9 @@ def by_key(ws, entry):
     return found
 
 
-def dashboard(ids):
-    """Lovelace config: only cards for sensors this meter actually has."""
+def views(ids):
+    """The P1 views: electricity for the dashboard Elektriciteit, gas for Verwarming. Only
+    cards for sensors this meter actually has."""
     def pick(*keys):
         return [ids[k] for k in keys if k in ids]
 
@@ -148,12 +150,9 @@ def dashboard(ids):
                 "chart_type": chart_type}
 
     now = [{"type": "tile", "entity": e} for e in power + voltage + current + status]
-    cards = [
+    electricity = [
         {"type": "grid", "columns": 2, "square": False, "cards": now},
         history("Vermogen (24 uur)", power),
-        # The meter reports gas every 5 minutes; HA's 5-minute statistics give the use
-        # per interval (kept as long as the recorder's purge_keep_days).
-        statistics("Gas per 5 minuten (24 uur)", gas, "5minute", 1, ["change"]),
         history("Vermogen per fase (24 uur)", phases),
         history("Spanning (24 uur)", voltage),
         history("Stroom (24 uur)", current),
@@ -161,25 +160,26 @@ def dashboard(ids):
         statistics("Spanning per uur (7 dagen)", voltage, "hour", 7, ["mean", "min", "max"]),
         statistics("Elektriciteit per dag (30 dagen)", energy, "day", 30, ["change"], "bar"),
         statistics("Elektriciteit per maand (1 jaar)", energy, "month", 365, ["change"], "bar"),
-        statistics("Gas per dag (30 dagen)", gas, "day", 30, ["change"], "bar"),
-        statistics("Gas per maand (1 jaar)", gas, "month", 365, ["change"], "bar"),
-        {"type": "entities", "title": "Meterstanden", "entities": energy + gas},
+        {"type": "entities", "title": "Meterstanden", "entities": energy},
         {"type": "entities", "title": "Storingen, dips en pieken", "entities": events},
         history("Storingen, dips en pieken (30 dagen)", events, 24 * 30),
     ]
-    # A card without entities is an error in the frontend.
-    cards = [c for c in cards if c.get("entities") or c.get("cards")]
-    return {"title": "P1-meter", "views": [{"title": "P1-meter", "path": "p1",
-                                             "icon": "mdi:meter-electric", "cards": cards}]}
+    gas_cards = [
+        # The meter reports gas every 5 minutes; HA's 5-minute statistics give the use
+        # per interval (kept as long as the recorder's purge_keep_days).
+        statistics("Gas per 5 minuten (24 uur)", gas, "5minute", 1, ["change"]),
+        statistics("Gas per dag (30 dagen)", gas, "day", 30, ["change"], "bar"),
+        statistics("Gas per maand (1 jaar)", gas, "month", 365, ["change"], "bar"),
+        {"type": "entities", "title": "Meterstand", "entities": gas},
+    ]
 
+    def view(title, path, icon, cards):
+        # A card without entities is an error in the frontend.
+        cards = [c for c in cards if c.get("entities") or c.get("cards")]
+        return [{"title": title, "path": path, "icon": icon, "cards": cards}] if cards else []
 
-def write_dashboard(ws, ids):
-    if not any(d["url_path"] == DASHBOARD for d in ws.call("lovelace/dashboards/list")):
-        ws.call("lovelace/dashboards/create", url_path=DASHBOARD, title="P1-meter",
-                icon="mdi:meter-electric", show_in_sidebar=True, require_admin=False,
-                mode="storage")
-    ws.call("lovelace/config/save", url_path=DASHBOARD, config=dashboard(ids))
-    m.log(f"dashboard: {m.HA_URL}/{DASHBOARD}")
+    return {"electricity": view("Meter", "meter", "mdi:meter-electric", electricity),
+            "gas": view("Gas", "gas", "mdi:meter-gas", gas_cards)}
 
 
 def main():
@@ -207,7 +207,7 @@ def main():
     try:
         ids = by_key(ws, entry)
         m.log(f"{len(ids)} sensors: " + ", ".join(sorted(ids.values())))
-        write_dashboard(ws, ids)
+        dashboards.write(ws, token)
     finally:
         ws.close()
 

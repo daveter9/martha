@@ -4,7 +4,7 @@
 #
 # The SQL sensors read the recorder's database (no db_url) and poll every 30 seconds, so they
 # only read stored results or cheap functions. The running totals (state_class total) become
-# long-term statistics; the dashboard 'Warmtepomp' shows their change per day, week, month,
+# long-term statistics; the dashboards Verwarming and Tapwater show their change per day, week, month,
 # year or a chosen period. They lag up to ~5 minutes (heat_job). A changed model parameter
 # recomputes all history, so a total can jump once.
 

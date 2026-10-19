@@ -185,7 +185,9 @@ docker exec -i -e PGPASSWORD="$db_pw" -e PGOPTIONS='-c client_min_messages=warni
 # whose functions it uses. heat_reference.sql holds the hourly temperatures of the reference year.
 for f in heat.sql heat_reference.sql; do
     log "applying database schema (host/db/$f)"
-    docker exec -i -e PGPASSWORD="$db_pw" -e PGOPTIONS='-c client_min_messages=warning' timescaledb         psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U homeassistant -d homeassistant         <"$ROOT/host/db/$f" >/dev/null
+    docker exec -i -e PGPASSWORD="$db_pw" -e PGOPTIONS='-c client_min_messages=warning' timescaledb \
+        psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U homeassistant -d homeassistant \
+        <"$ROOT/host/db/$f" >/dev/null
 done
 
 # --- 5. Home Assistant configuration ------------------------------------------------
@@ -299,6 +301,8 @@ install -d -m 0755 "$STATE_DIR"
 install -d -m 0755 /usr/local/lib/martha
 install -m 0755 "$ROOT/host/gate/martha_ha.py" /usr/local/lib/martha/martha_ha.py
 ln -sf /usr/local/lib/martha/martha_ha.py /usr/local/sbin/martha-ha
+# The dashboards per domain (Elektriciteit, Verwarming, Tapwater), used by the setup scripts.
+install -m 0755 "$ROOT/host/ha/dashboards.py" /usr/local/lib/martha/dashboards.py
 # P1 meter (DSMR) and its dashboard; run by hand after setup-gate (see readme.md).
 install -m 0755 "$ROOT/host/ha/setup_p1.py" /usr/local/lib/martha/setup_p1.py
 # Solar panels (prices, calculations, helpers, dashboard); run by hand after setup_p1.

@@ -33,7 +33,8 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C21 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
 | C22 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
 | C23 | **De repo is publiek: code van anderen zonder licentie komt er niet in.** | Zo'n code (nu: Grott) haalt `download.ps1` alleen naar de lokale bundle, en staat in `.gitignore`. Code met een licentie (LTSS, MIT) mag wel in de repo. |
-| C24 | **In HA staat alleen wat de gebruiker bewust heeft toegevoegd** (keuze van de gebruiker, 2026-10-19). | Geen `default_config`: `configuration.yaml` noemt alleen `frontend`, `energy`, `history`, `logbook`, `mobile_app` en `webhook`. Geen ontdekking (zeroconf, ssdp, dhcp, usb, Bluetooth), cloud, spraak, media, Sun of go2rtc. Integraties uit de onboarding (Shopping list, Radio Browser, Google Translate), de via het netwerk gevonden Sonos One, het Kaart-dashboard en de standaardruimtes zijn verwijderd. Een integratie die een gevraagde functie nodig heeft (Met.no voor de buitentemperatuur, Nord Pool voor de marktprijs) blijft. |
+| C24 | **In HA staat alleen wat de gebruiker bewust heeft toegevoegd** (keuze van de gebruiker, 2026-10-19). | Geen `default_config`: `configuration.yaml` noemt alleen `frontend`, `energy`, `history`, `logbook`, `mobile_app` en `webhook`. Geen ontdekking (zeroconf, ssdp, dhcp, usb, Bluetooth), cloud, spraak, media, Sun of go2rtc. Integraties uit de onboarding (Shopping list, Radio Browser, Google Translate), de via het netwerk gevonden Sonos One, het Kaart-dashboard, de voorbeeld-blueprints (lege mappen met `.keep`, anders zet HA ze terug) en de standaardruimtes zijn verwijderd. Een integratie die een gevraagde functie nodig heeft (Met.no voor de buitentemperatuur, Nord Pool voor de marktprijs) blijft. |
+| C25 | **Dashboards per domein, niet per bron** (keuze van de gebruiker, 2026-10-19). | Drie dashboards: **Elektriciteit** (`/huis-elektriciteit`: de stroommeter en de tabs van de zonnepanelen), **Verwarming** (`/huis-verwarming`: gas en de vergelijking met de warmtepomp) en **Tapwater** (`/huis-tapwater`: gas voor warm water en de instellingen van de herkenning). HA eist een streepje in de URL. `host/ha/dashboards.py` bouwt ze alle drie opnieuw uit wat geïnstalleerd is; elk setup-script roept het aan, en de kaarten staan in `views()` naast de sensoren in elk script. Een nieuw onderdeel krijgt een plek in een domein, niet een eigen dashboard. |
 
 ## Architectuurbeslissingen
 
@@ -218,7 +219,7 @@ config-flow-API en de websocket met het root-token:
   adapter. *Bekend risico:* komt er een tweede USB-seriële stick bij (Zigbee), dan kan de
   nummering wisselen. Dan is een vast pad nodig, bijvoorbeeld een udev-symlink plus een
   mount van `/dev/serial`.
-- **Dashboard** `p1-meter` (storage-modus, dus in de config-repo via `.storage/lovelace.*`):
+- **Dashboard** (C25: tab *Meter* op Elektriciteit, tab *Gas* op Verwarming; storage-modus, dus in de config-repo via `.storage/lovelace.*`):
   history-graphs (24 uur, uit de Recorder) en statistics-graphs (uur, dag en maand, uit de
   long-term statistics). Het minuutdetail van langer dan 10 dagen geleden staat alleen in
   TimescaleDB; HA zelf toont dat niet.
@@ -248,7 +249,7 @@ wat het gas van de P1-meter met de CV-ketel kost, en wat dezelfde warmte zou kos
 volledig elektrische warmtepomp (COP uit een Carnot-model op een stooklijn, de buitentemperatuur
 van de weer-entity), elk met de contractprijs en met de marktprijs (Nord Pool, en EnergyZero voor
 gas via een REST-sensor). Warm water wordt herkend in de 5-minutendata van de gasmeter. Alle aannames zijn helpers (`input_number.heat_*`); hun
-tekst en standaardwaarde staan in de tabel `heat_param`. Het dashboard `/warmte-pomp` toont de
+tekst en standaardwaarde staan in de tabel `heat_param`. Het dashboard Verwarming (C25) toont de
 berekening van één minuut met zijn getallen en elke aanname met hoe hij te verfijnen is.
 De jaarprognose gebruikt het gemeten warmteverlies en een referentiejaar (2019, Open-Meteo,
 CC BY 4.0; data met licentie mag in de repo, C23).

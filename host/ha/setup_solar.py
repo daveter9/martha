@@ -16,14 +16,15 @@ Idempotent; each run:
      (check_config, backup, restart, health check, automatic rollback);
   6. creates the helpers (tariffs, investment, forecast, battery) that do not exist yet;
      existing helpers and their values are left alone;
-  7. writes the dashboard 'Zonnepanelen' (/zonne-energie).
+  7. writes the dashboards per domain (host/ha/dashboards.py): the solar tabs are on
+     Elektriciteit.
 
 With --inverter (phase 5, the Growatt through Grott), also:
   - a webhook id martha_grott_webhook in secrets.yaml (once);
   - packages/solar_growatt.yaml (the sensors the webhook fills);
   - /etc/martha/grott.ini, and (re)starting martha-grottserver and martha-grott;
   - the roles pv_power and pv_total in solar_entity, so the calculations use the generation;
-  - the tab 'Omvormer' on the dashboard.
+  - the tab 'Omvormer' on the dashboard Elektriciteit.
 Then point the ShineLAN-X at martha's IP address (see the readme).
 """
 
@@ -37,9 +38,9 @@ import time
 
 sys.path.insert(0, "/usr/local/lib/martha")
 import martha_ha as m  # noqa: E402
+import dashboards  # noqa: E402
 import setup_p1  # noqa: E402
 
-DASHBOARD = "zonne-energie"   # HA requires a hyphen in a dashboard URL
 TEMPLATES = "/usr/local/lib/martha/solar"   # host/ha/packages/solar*.yaml
 PACKAGES = ("packages/solar.yaml", "packages/solar_prices.yaml")
 GROWATT_PACKAGE = "packages/solar_growatt.yaml"
@@ -288,7 +289,8 @@ def sql_entities(ws):
             and str(e.get("unique_id", "")).startswith("solar_")}
 
 
-def dashboard(ids):
+def views(ids):
+    """The solar views on the dashboard Elektriciteit (host/ha/dashboards.py)."""
     def e(uid):
         return ids.get(uid)
 
@@ -417,25 +419,16 @@ def dashboard(ids):
             out.append(c)
         return out
 
-    views = [("Overzicht", "overzicht", "mdi:solar-power", overview),
+    views = [("Zonnepanelen", "zonnepanelen", "mdi:solar-power", overview),
              ("Contract", "contract", "mdi:file-compare", contract),
              ("Investering", "investering", "mdi:finance", investment),
              ("Overschot", "overschot", "mdi:sun-clock", surplus),
              ("Instellingen", "instellingen", "mdi:cog", settings)]
     if e("solar_growatt_power"):
         views.insert(1, ("Omvormer", "omvormer", "mdi:solar-panel", inverter))
-    return {"title": "Zonnepanelen",
-            "views": [{"title": t, "path": p, "icon": i, "cards": clean(c)}
-                      for t, p, i, c in views]}
-
-
-def write_dashboard(ws, ids):
-    if not any(d["url_path"] == DASHBOARD for d in ws.call("lovelace/dashboards/list")):
-        ws.call("lovelace/dashboards/create", url_path=DASHBOARD, title="Zonnepanelen",
-                icon="mdi:solar-power", show_in_sidebar=True, require_admin=False,
-                mode="storage")
-    ws.call("lovelace/config/save", url_path=DASHBOARD, config=dashboard(ids))
-    m.log(f"dashboard: {m.HA_URL}/{DASHBOARD}")
+    if not ids:
+        return []
+    return [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in views]
 
 
 def main():
@@ -473,7 +466,7 @@ def main():
             write_pv_roles(ws)
         ids = sql_entities(ws)
         m.log(f"{len(ids)} solar sensors: " + ", ".join(sorted(ids.values())))
-        write_dashboard(ws, ids)
+        dashboards.write(ws, token)
     finally:
         ws.close()
     # Fill solar_1m from the start now instead of waiting for the job.
