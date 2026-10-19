@@ -157,15 +157,16 @@ def write(ws, token):
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
-        for v in views[key]:
-            top = heading(*HEADINGS.get((key, v["path"]), (v["title"], "")))
-            if v.get("type") == "sections":
-                v["sections"].insert(0, {"type": "grid", "column_span": 4, "cards": [top]})
-            else:
-                v["cards"].insert(0, top)
-        if len(views[key]) > 1:
-            views[key] = [overview(path, title, views[key], home.get(key, []))] + [
-                {**v, "subview": True, "back_path": f"/{path}/overzicht"} for v in views[key]]
+        pages = views[key]
+        if len(pages) > 1:
+            # Progressive disclosure: an overview, the pages as subviews that go back to it.
+            first = overview(path, title, pages, home.get(key, []))
+            views[key] = [titled(first, (title, ""), START)] + [
+                {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
+                 "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
+        else:
+            views[key] = [titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), START)
+                          for v in pages]
         if path not in existing:
             ws.call("lovelace/dashboards/create", url_path=path, title=title, icon=icon,
                     show_in_sidebar=True, require_admin=False, mode="storage")
@@ -196,10 +197,31 @@ def overview(path, title, subviews, values):
     buttons = [{"type": "button", "name": v["title"], "icon": v.get("icon"), "show_state": False,
                 "tap_action": {"action": "navigate", "navigation_path": f"/{path}/{v['path']}"}}
                for v in subviews]
-    cards = [heading(title), glance(values, columns=2),
+    cards = [glance(values, columns=2),
              {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
     return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",
             "cards": [c for c in cards if c]}
+
+
+START = "/lovelace/thuis"
+
+
+def titled(view, head, back):
+    """The view as a sections view whose first row is a back button next to the title and
+    subtitle (C25). A masonry view's cards become one full-width section."""
+    top = {"type": "grid", "column_span": 4, "cards": [
+        {"type": "button", "icon": "mdi:arrow-left", "show_name": False, "show_state": False,
+         "tap_action": {"action": "navigate", "navigation_path": back},
+         "grid_options": {"columns": 2, "rows": 1}},
+        {**heading(*head), "grid_options": {"columns": 10}},
+    ]}
+    if view.get("type") == "sections":
+        sections = view["sections"]
+    else:
+        sections = [{"type": "grid", "column_span": 4,
+                     "cards": [{**c, "grid_options": {"columns": "full"}} for c in view["cards"]]}]
+    keep = {k: view[k] for k in ("title", "path", "icon") if k in view}
+    return {**keep, "type": "sections", "max_columns": 4, "sections": [top, *sections]}
 
 
 def write_start(ws, dashboards):
