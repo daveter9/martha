@@ -163,12 +163,15 @@ def write(ws, token):
                 v["sections"].insert(0, {"type": "grid", "column_span": 4, "cards": [top]})
             else:
                 v["cards"].insert(0, top)
+        if len(views[key]) > 1:
+            views[key] = [overview(path, title, views[key], home.get(key, []))] + [
+                {**v, "subview": True, "back_path": f"/{path}/overzicht"} for v in views[key]]
         if path not in existing:
             ws.call("lovelace/dashboards/create", url_path=path, title=title, icon=icon,
                     show_in_sidebar=True, require_admin=False, mode="storage")
         ws.call("lovelace/config/save", url_path=path,
                 config={"title": title, "views": views[key]})
-        m.log(f"dashboard {title}: {m.HA_URL}/{path} ({len(views[key])} tabs)")
+        m.log(f"dashboard {title}: {m.HA_URL}/{path} ({len(views[key])} pages)")
     for path in OLD:
         if path in existing:
             ws.call("lovelace/dashboards/delete", dashboard_id=existing[path]["id"])
@@ -176,6 +179,27 @@ def write(ws, token):
     shown = [k for k in DASHBOARDS if views[k]]
     write_sidebar(ws, [DASHBOARDS[k][0] for k in shown])
     write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown])   # last: it may restart HA
+
+
+def glance(values, go=None, columns=1):
+    """Small labels and values without icons (use now and today)."""
+    entities = [{"entity": e, "name": n, **({"tap_action": go} if go else {})} for e, n in values if e]
+    if not entities:
+        return None
+    return {"type": "glance", "show_icon": False, "show_name": True, "show_state": True,
+            "columns": columns, "state_color": False, "entities": entities}
+
+
+def overview(path, title, subviews, values):
+    """Progressive disclosure (C25): a dashboard opens on an overview with its use now and
+    today and a button per page; the pages are subviews (no tab bar, a back arrow)."""
+    buttons = [{"type": "button", "name": v["title"], "icon": v.get("icon"), "show_state": False,
+                "tap_action": {"action": "navigate", "navigation_path": f"/{path}/{v['path']}"}}
+               for v in subviews]
+    cards = [heading(title), glance(values, columns=2),
+             {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
+    return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",
+            "cards": [c for c in cards if c]}
 
 
 def write_start(ws, dashboards):
@@ -193,11 +217,8 @@ def write_start(ws, dashboards):
         go = {"action": "navigate", "navigation_path": f"/{path}"}
         buttons.append({"type": "vertical-stack", "cards": [
             {"type": "button", "name": title, "icon": icon, "show_state": False, "tap_action": go},
-            # A glance card: small label and value, no icons, so it fits a third of a phone.
-            *([{"type": "glance", "show_icon": False, "show_name": True, "show_state": True,
-                "columns": 1, "state_color": False,
-                "entities": [{"entity": e, "name": n, "tap_action": go} for e, n in values if e]}]
-              if any(e for e, _ in values) else [])]})
+            # Small label and value, no icons, so it fits a third of a phone.
+            *[c for c in [glance(values, go)] if c]]})
     config = {"title": "Thuis", "views": [
         {"title": "Thuis", "path": "thuis", "icon": "mdi:home",
          "cards": [heading("Thuis"),
