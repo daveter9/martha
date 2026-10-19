@@ -1,0 +1,134 @@
+# Heating: gas boiler versus heat pump (docs/warmtepomp.md). Deployed by host/ha/setup_heat.py
+# as packages/heat.yaml (through martha-ha, so it is in the config repository); setup_heat.py
+# fills in the weather entity (__WEATHER__). All functions and tables: host/db/heat.sql.
+#
+# The SQL sensors read the recorder's database (no db_url) and poll every 30 seconds, so they
+# only read stored results or cheap functions. The running totals (state_class total) become
+# long-term statistics; the dashboard 'Warmtepomp' shows their change per day, week, month,
+# year or a chosen period. They lag up to ~5 minutes (heat_job). A changed model parameter
+# recomputes all history, so a total can jump once.
+
+template:
+  - sensor:
+      # The outdoor temperature from the weather integration, as a sensor so LTSS stores it
+      # (heat_temperature reads it from ltss_1m). Without internet it is unavailable; the
+      # calculation then uses Open-Meteo history or the reference year.
+      - name: Buitentemperatuur
+        unique_id: heat_outdoor_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: "{{ state_attr('__WEATHER__', 'temperature') }}"
+        availability: "{{ state_attr('__WEATHER__', 'temperature') is number }}"
+
+sql:
+  # --- Running totals since the first gas data -------------------------------------------
+  - name: Warmtepomp kosten CV-ketel
+    unique_id: heat_total_cv
+    icon: mdi:fire
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cv::numeric, 4) AS v, round(cv_var::numeric, 2) AS energie FROM heat_totals() LIMIT 1;
+
+  - name: Warmtepomp kosten warmtepomp
+    unique_id: heat_total_wp
+    icon: mdi:heat-pump-outline
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(wp::numeric, 4) AS v, round(wp_var::numeric, 2) AS energie FROM heat_totals() LIMIT 1;
+
+  - name: Warmtepomp kosten hybride
+    unique_id: heat_total_hyb
+    icon: mdi:heat-pump
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(hyb::numeric, 4) AS v, round(hyb_var::numeric, 2) AS energie FROM heat_totals() LIMIT 1;
+
+  - name: Warmtepomp warmtevraag
+    unique_id: heat_total_heat
+    icon: mdi:radiator
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    query: SELECT round(heat::numeric, 3) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Warmtepomp stroom warmtepomp
+    unique_id: heat_total_wp_kwh
+    icon: mdi:lightning-bolt
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    query: SELECT round(wp_kwh::numeric, 3) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Warmtepomp stroom hybride
+    unique_id: heat_total_hyb_kwh
+    icon: mdi:lightning-bolt-outline
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    query: SELECT round(hyb_kwh::numeric, 3) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Warmtepomp gas hybride
+    unique_id: heat_total_hyb_gas
+    icon: mdi:meter-gas-outline
+    unit_of_measurement: m³
+    device_class: gas
+    state_class: total
+    column: v
+    query: SELECT round(hyb_gas::numeric, 3) AS v FROM heat_totals() LIMIT 1;
+
+  # --- Results (heat_results, hourly) ----------------------------------------------------
+  - name: Warmtepomp besparing per jaar
+    unique_id: heat_forecast
+    icon: mdi:calendar-cash
+    unit_of_measurement: EUR
+    column: v
+    # The state is the saving per year of the all-electric heat pump; the table is an attribute.
+    query: >-
+      SELECT round(f.value::numeric) AS v,
+             f.detail AS tabel,
+             (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_cv') AS kosten_cv,
+             (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_wp') AS kosten_warmtepomp,
+             (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_hyb') AS kosten_hybride,
+             (SELECT round(value::numeric, 1) FROM heat_result WHERE key = 'year_payback_wp') AS terugverdientijd_warmtepomp,
+             (SELECT round(value::numeric, 1) FROM heat_result WHERE key = 'year_payback_hyb') AS terugverdientijd_hybride,
+             (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_gas_m3') AS gas_per_jaar,
+             (SELECT round(value::numeric, 2) FROM heat_result WHERE key = 'year_scop') AS scop,
+             to_char(f.updated AT TIME ZONE 'Europe/Amsterdam', 'YYYY-MM-DD HH24:MI') AS berekend
+      FROM heat_result f WHERE f.key = 'forecast' LIMIT 1;
+
+  - name: Warmtepomp warmteverlies
+    unique_id: heat_loss
+    icon: mdi:home-thermometer-outline
+    unit_of_measurement: W/K
+    column: v
+    query: >-
+      SELECT round(f.value::numeric) AS v, f.detail AS toelichting,
+             (SELECT round(value::numeric, 2) FROM heat_result WHERE key = 'required_kw') AS vermogen_bij_min10_kw,
+             (SELECT round(value::numeric, 2) FROM heat_result WHERE key = 'dhw_measured') AS gas_zonder_verwarming_m3_per_dag
+      FROM heat_result f WHERE f.key = 'fit' LIMIT 1;
+
+  # --- Explanation and assumptions (markdown in an attribute) ------------------------------
+  - name: Warmtepomp berekening
+    unique_id: heat_explain
+    icon: mdi:calculator-variant-outline
+    column: v
+    query: >-
+      SELECT to_char(shown AT TIME ZONE 'Europe/Amsterdam', 'YYYY-MM-DD HH24:MI') AS v, md AS uitleg
+      FROM heat_explain() LIMIT 1;
+
+  - name: Warmtepomp aannames
+    unique_id: heat_assumptions
+    icon: mdi:clipboard-list-outline
+    column: v
+    # The state is the number of parameters still at their default.
+    query: SELECT defaults AS v, md AS tabel FROM heat_assumptions() LIMIT 1;

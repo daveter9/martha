@@ -181,6 +181,12 @@ log "applying database schema (host/db/solar.sql)"
 docker exec -i -e PGPASSWORD="$db_pw" -e PGOPTIONS='-c client_min_messages=warning' timescaledb \
     psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U homeassistant -d homeassistant \
     <"$ROOT/host/db/solar.sql" >/dev/null
+# Heating: gas boiler versus heat pump, per minute (docs/warmtepomp.md); after solar.sql,
+# whose functions it uses. heat_reference.sql holds the hourly temperatures of the reference year.
+for f in heat.sql heat_reference.sql; do
+    log "applying database schema (host/db/$f)"
+    docker exec -i -e PGPASSWORD="$db_pw" -e PGOPTIONS='-c client_min_messages=warning' timescaledb         psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U homeassistant -d homeassistant         <"$ROOT/host/db/$f" >/dev/null
+done
 
 # --- 5. Home Assistant configuration ------------------------------------------------
 # A fresh install gets HA's own default configuration, written here because HA only
@@ -290,6 +296,10 @@ install -d -m 0755 /usr/local/lib/martha/solar
 install -m 0644 "$ROOT/host/ha/packages/solar.yaml" "$ROOT/host/ha/packages/solar_prices.yaml" \
     "$ROOT/host/ha/packages/solar_growatt.yaml" "$ROOT/host/grott/grott.ini.template" \
     /usr/local/lib/martha/solar/
+# Gas boiler versus heat pump (helpers, sensors, dashboard); run by hand after setup_solar.
+install -m 0755 "$ROOT/host/ha/setup_heat.py" /usr/local/lib/martha/setup_heat.py
+install -d -m 0755 /usr/local/lib/martha/heat
+install -m 0644 "$ROOT/host/ha/packages/heat.yaml" /usr/local/lib/martha/heat/
 # Grott (Growatt datalogger, phase 5) from the bundle, plus martha's launchers, extension and
 # stand-ins. The services only start once 'setup_solar.py --inverter' wrote /etc/martha/grott.ini.
 rm -rf /usr/local/lib/martha/grott /usr/local/lib/martha/grott-martha
