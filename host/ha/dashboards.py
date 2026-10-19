@@ -14,6 +14,7 @@ script. A domain without any views is not created; the dashboards of the earlier
 
 import os
 import sys
+import time
 
 sys.path.insert(0, "/usr/local/lib/martha")
 import martha_ha as m  # noqa: E402
@@ -163,25 +164,53 @@ def write(ws, token):
             ws.call("lovelace/dashboards/delete", dashboard_id=existing[path]["id"])
             m.log(f"removed old dashboard /{path}")
     shown = [DASHBOARDS[k] for k in DASHBOARDS if views[k]]
-    write_start(ws, shown)
     write_sidebar(ws, [path for path, _, _ in shown])
+    write_start(ws, shown)   # last: it may restart HA
 
 
 def write_start(ws, dashboards):
-    """The start screen: only a button per dashboard (C25). It is the default dashboard
-    (Overzicht, /lovelace), made the default panel for everyone instead of HA's generated
-    home screen (weather, devices)."""
+    """The start screen: only a button per dashboard (C25), as the default panel for everyone
+    instead of HA's generated home screen (weather, devices).
+
+    Since HA 2026 the frontend only uses the default panel 'lovelace' when it is a dashboard
+    entry with that url_path; otherwise it falls back to the home screen. HA turns the legacy
+    default config into such an entry when it starts, so the first time this saves the legacy
+    config and restarts HA; after that it writes to the entry. Call it last: a restart closes
+    the websocket."""
     buttons = [{"type": "button", "name": title, "icon": icon, "show_state": False,
                 "tap_action": {"action": "navigate", "navigation_path": f"/{path}"}}
                for path, title, icon in dashboards]
-    ws.call("lovelace/config/save", config={"title": "Thuis", "views": [
+    config = {"title": "Thuis", "views": [
         {"title": "Thuis", "path": "thuis", "icon": "mdi:home",
          "cards": [heading("Thuis", "Kies een onderwerp"),
-                   {"type": "grid", "columns": 3, "square": True, "cards": buttons}]}]})
+                   {"type": "grid", "columns": 3, "square": True, "cards": buttons}]}]}
     core = ws.call("frontend/get_system_data", key="core").get("value") or {}
     if core.get("default_panel") != "lovelace":
         ws.call("frontend/set_system_data", key="core", value={**core, "default_panel": "lovelace"})
         m.log("default panel: the start screen (/lovelace) instead of HA's home screen")
+    entry = next((d for d in ws.call("lovelace/dashboards/list") if d["url_path"] == "lovelace"), None)
+    if entry:
+        ws.call("lovelace/config/save", url_path="lovelace", config=config)
+        if entry.get("title") != "Thuis" or entry.get("icon") != "mdi:home":
+            ws.call("lovelace/dashboards/update", dashboard_id=entry["id"], title="Thuis", icon="mdi:home")
+        m.log(f"start screen: {len(buttons)} buttons")
+        return
+    ws.call("lovelace/config/save", config=config)
+    m.log("start screen saved; restarting Home Assistant so it becomes the dashboard 'lovelace'")
+    since = time.time()
+    m.compose("restart")
+    ok, msg = m.wait_healthy(since)
+    if not ok:
+        raise m.Error(f"Home Assistant unhealthy after restart: {msg}")
+    token = m.read_env(m.ROOT_ENV)["HA_TOKEN"]
+    ws2 = m.WebSocket(m.HA_URL, token)
+    try:
+        entry = next((d for d in ws2.call("lovelace/dashboards/list") if d["url_path"] == "lovelace"), None)
+        if not entry:
+            raise m.Error("HA did not create the dashboard 'lovelace' from the start screen")
+        ws2.call("lovelace/dashboards/update", dashboard_id=entry["id"], title="Thuis", icon="mdi:home")
+    finally:
+        ws2.close()
     m.log(f"start screen: {len(buttons)} buttons")
 
 
