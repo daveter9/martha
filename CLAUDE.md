@@ -7,6 +7,10 @@
 - **Commits.** Conventional commits, logisch opgesplitst. Push na elke commit meteen.
 - **Taal.** Overleg en documentatie in het Nederlands; code en commentaar in scripts in het Engels.
 - **Architectuurvragen** stel je aan de gebruiker, in plaats van zelf te kiezen.
+- **Vragen stel je in de sessie, één tegelijk** (niet via Telegram). Stelt de gebruiker een
+  aanpassing voor, dan bouw je die meteen, zonder eerst om bevestiging te vragen.
+- **Alleen wat gevraagd is.** Voeg in HA niets toe waar de gebruiker niet om vroeg (C24 in
+  DESIGN.md); stel extra's voor in plaats van ze te bouwen.
 - **Niet testen in WSL.** Gebruik de WSL-distro's van de gebruiker niet om iets te
   testen, ook niet read-only of als simulatie. Verifieer met wat native op Windows
   draait (PowerShell, `bash -n` in Git Bash). Vraag het eerst als je een andere

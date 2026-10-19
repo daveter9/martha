@@ -189,17 +189,28 @@ for f in heat.sql heat_reference.sql; do
 done
 
 # --- 5. Home Assistant configuration ------------------------------------------------
-# A fresh install gets HA's own default configuration, written here because HA only
+# A fresh install gets a minimal configuration (no default_config, see C24), written here because HA only
 # writes it when configuration.yaml is missing, and it must use PostgreSQL from the start.
 if [ ! -f "$CONF/configuration.yaml" ]; then
     log "writing default configuration.yaml"
     cat >"$CONF/configuration.yaml" <<'EOF'
-# Loads default set of integrations. Do not remove.
-default_config:
+# Only the integrations martha uses. No default_config: it also loads discovery (zeroconf,
+# ssdp, dhcp, usb, Bluetooth), cloud, voice, media, sun and go2rtc, which add integrations
+# and entities nobody asked for (DESIGN.md, C24). Home Assistant itself always loads the
+# frontend, helpers, automations, scripts, person and zone.
 
 # Load frontend themes from the themes folder
 frontend:
   themes: !include_dir_merge_named themes
+
+# Energy dashboard (solar panels, P1 meter)
+energy:
+# History and logbook (history graphs on the dashboards)
+history:
+logbook:
+# Companion app (approvals of martha-gate, notifications) and Grott's webhook
+mobile_app:
+webhook:
 
 automation: !include automations.yaml
 script: !include scripts.yaml
