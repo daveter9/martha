@@ -294,16 +294,20 @@ def now_today(values, horizontal=False):
     blocks = []
     for label, use, cost in (("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag")):
         lines = [value(by[k]) for k in (use, cost) if k in by]
-        if label == "Nu" and lines and age:
-            lines.append(f"<small>{ago(*age)}</small>")
         if lines:
             blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
     if not blocks:
         return None
-    if horizontal:   # on the overviews: Nu and Vandaag side by side
-        return {"type": "horizontal-stack",
-                "cards": [{"type": "markdown", "content": b} for b in blocks]}
-    return {"type": "markdown", "content": "\n\n".join(blocks)}
+    # How long ago the measurement behind 'Nu' is: small, at the very bottom of the card.
+    footer = f"<small>Meting {ago(*age)}</small>" if age else ""
+    if horizontal:   # on the overviews: Nu and Vandaag side by side, the age under both
+        stack = {"type": "horizontal-stack",
+                 "cards": [{"type": "markdown", "content": b} for b in blocks]}
+        if not footer:
+            return stack
+        return {"type": "vertical-stack",
+                "cards": [stack, {"type": "markdown", "content": footer}]}
+    return {"type": "markdown", "content": "\n\n".join(blocks + ([footer] if footer else []))}
 
 
 def write_start(ws, dashboards):
