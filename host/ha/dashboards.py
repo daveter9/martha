@@ -299,7 +299,7 @@ def now_today(values, horizontal=False):
     if not blocks:
         return None
     # How long ago the measurement behind 'Nu' is: small, at the very bottom of the card.
-    footer = f"<small>Meting {ago(*age)}</small>" if age else ""
+    footer = f"<small>{ago(*age)}</small>" if age else ""
     if horizontal:   # on the overviews: Nu and Vandaag side by side, the age under both
         stack = {"type": "horizontal-stack",
                  "cards": [{"type": "markdown", "content": b} for b in blocks]}
