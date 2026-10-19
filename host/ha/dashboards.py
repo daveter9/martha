@@ -280,7 +280,7 @@ def now_today(values, horizontal=False):
     for label, use, cost in (("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag")):
         lines = [value(by[k]) for k in (use, cost) if k in by]
         if lines:
-            blocks.append(f"**{label}**<br>" + "<br>".join(lines))
+            blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
     if not blocks:
         return None
     if horizontal:   # on the overviews: Nu and Vandaag side by side
@@ -302,13 +302,16 @@ def write_start(ws, dashboards):
     # The title is HA's location name (Instellingen > Systeem > Algemeen), so the address
     # stays out of this repository.
     name = ws.call("get_config").get("location_name") or "Thuis"
-    # Three columns: a button per dashboard, with small values (no icons) under it.
+    # Three columns, one button each: the icon and name, then Nu and Vandaag with use and
+    # costs. A markdown card, because it can hold all of that and still has a tap action.
     buttons = []
     for path, title, icon, values in dashboards:
-        go = {"action": "navigate", "navigation_path": f"/{path}"}
-        buttons.append({"type": "vertical-stack", "cards": [
-            {"type": "button", "name": title, "icon": icon, "show_state": False, "tap_action": go},
-            *[c for c in [now_today(values)] if c]]})
+        body = now_today(values)
+        content = (f'<center><ha-icon icon="{icon}"></ha-icon><br><b>{title}</b>'
+                   + ("<br><br>" + body["content"].replace("\n\n", "<br><br>") if body else "")
+                   + "</center>")
+        buttons.append({"type": "markdown", "content": content,
+                        "tap_action": {"action": "navigate", "navigation_path": f"/{path}"}})
     config = {"title": name, "views": [
         {"title": name, "path": "thuis", "icon": "mdi:home",
          "cards": [heading(name),
