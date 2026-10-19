@@ -820,33 +820,72 @@ LANGUAGE sql STABLE AS $$
     FROM heat_1d
 $$;
 
--- The start screen (C25): use now and today per dashboard. Electricity today = the import
+-- The start screen and the overviews (C25): use and costs now and today per dashboard,
+-- at contract prices without fixed costs. Electricity today = the import
 -- counters now minus at local midnight (raw LTSS, so up to date). Gas now = the average of the
 -- last 15 minutes in m³/h: the meter reports every 5 minutes and heat_job runs every 5
 -- minutes, so a shorter window would mostly show 0. Gas today from heat_1d.
+DROP FUNCTION IF EXISTS heat_home();
 CREATE OR REPLACE FUNCTION heat_home()
 RETURNS TABLE (elec_today double precision, gas_space_now double precision,
                gas_dhw_now double precision, gas_space_today double precision,
-               gas_dhw_today double precision)
-LANGUAGE sql STABLE AS $$
-    WITH d AS (
-        SELECT (now() AT TIME ZONE 'Europe/Amsterdam')::date AS day,
-               date_trunc('day', now() AT TIME ZONE 'Europe/Amsterdam') AT TIME ZONE 'Europe/Amsterdam' AS t0
-    )
-    SELECT
-        (SELECT sum((SELECT ltss_numeric(l.state) FROM ltss l
-                     WHERE l.entity_id = e AND ltss_numeric(l.state) IS NOT NULL
-                     ORDER BY l.time DESC LIMIT 1)
-                  - (SELECT ltss_numeric(l.state) FROM ltss l
-                     WHERE l.entity_id = e AND l.time < d.t0 AND ltss_numeric(l.state) IS NOT NULL
-                     ORDER BY l.time DESC LIMIT 1))
-         FROM unnest(ARRAY[solar_entity_id('import_low'), solar_entity_id('import_normal')]) e),
-        (SELECT coalesce(sum(gas_space), 0) * 4 FROM heat_1m WHERE minute >= now() - INTERVAL '15 minutes'),
-        (SELECT coalesce(sum(gas_dhw), 0) * 4 FROM heat_1m WHERE minute >= now() - INTERVAL '15 minutes'),
-        coalesce((SELECT gas_space FROM heat_1d WHERE heat_1d.day = d.day), 0),
-        coalesce((SELECT gas_dhw FROM heat_1d WHERE heat_1d.day = d.day), 0)
-    FROM d
-$$;
+               gas_dhw_today double precision,
+               elec_cost_now double precision, elec_cost_today double precision,
+               space_cost_now double precision, space_cost_today double precision,
+               dhw_cost_now double precision, dhw_cost_today double precision)
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    v_day    date := (now() AT TIME ZONE 'Europe/Amsterdam')::date;
+    v_t0     timestamptz := date_trunc('day', now() AT TIME ZONE 'Europe/Amsterdam') AT TIME ZONE 'Europe/Amsterdam';
+    -- Contract prices of now: the tariffs on Elektriciteit, else the helper; gas from the helper.
+    p_low    double precision := coalesce(nullif(solar_setting_now('import_low'), 0), heat_price_now('electricity_price'));
+    p_normal double precision := coalesce(nullif(solar_setting_now('import_normal'), 0), heat_price_now('electricity_price'));
+    p_gas    double precision := heat_price_now('gas_price');
+    -- Entity ids in variables: TimescaleDB evaluates a function in a WHERE on the hypertable
+    -- ltss without the search path ("relation solar_entity does not exist").
+    e_tariff text := solar_entity_id('tariff');
+    e_low    text := solar_entity_id('import_low');
+    e_normal text := solar_entity_id('import_normal');
+    e_power  text := heat_entity_id('elec_power');
+    v_tariff text;
+    v_power  double precision;
+    d_low    double precision;
+    d_normal double precision;
+    h        record;
+BEGIN
+    v_tariff := coalesce(
+        (SELECT state FROM ltss WHERE entity_id = e_tariff AND state IN ('low', 'normal')
+         ORDER BY time DESC LIMIT 1),
+        heat_tariff_rule(now()));
+    v_power := (SELECT ltss_numeric(state) FROM ltss
+                WHERE entity_id = e_power AND ltss_numeric(state) IS NOT NULL
+                ORDER BY time DESC LIMIT 1);
+    -- kWh used today per tariff: the counter now minus at local midnight.
+    SELECT (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_low
+            AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1)
+         - (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_low
+            AND time < v_t0 AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1),
+           (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_normal
+            AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1)
+         - (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_normal
+            AND time < v_t0 AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1)
+    INTO d_low, d_normal;
+    SELECT * INTO h FROM heat_1d WHERE heat_1d.day = v_day;
+
+    elec_today      := coalesce(d_low, 0) + coalesce(d_normal, 0);
+    elec_cost_today := coalesce(d_low, 0) * p_low + coalesce(d_normal, 0) * p_normal;
+    elec_cost_now   := v_power * CASE WHEN v_tariff = 'low' THEN p_low ELSE p_normal END;
+    SELECT coalesce(sum(gas_space), 0) * 4, coalesce(sum(gas_dhw), 0) * 4
+    INTO gas_space_now, gas_dhw_now
+    FROM heat_1m WHERE minute >= now() - INTERVAL '15 minutes';
+    space_cost_now   := gas_space_now * p_gas;
+    dhw_cost_now     := gas_dhw_now * p_gas;
+    gas_space_today  := coalesce(h.gas_space, 0);
+    gas_dhw_today    := coalesce(h.gas_dhw, 0);
+    space_cost_today := coalesce(h.cv_cost - coalesce(h.cv_cost_dhw, 0), 0);
+    dhw_cost_today   := coalesce(h.cv_cost_dhw, 0);
+    RETURN NEXT;
+END $$;
 
 -- A number with two decimals and a decimal comma.
 CREATE OR REPLACE FUNCTION heat_nl(p double precision) RETURNS text

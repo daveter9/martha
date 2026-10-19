@@ -141,32 +141,35 @@ def collect(ws, token):
         h = setup_heat.views(heat, rows)
         out["heating"] += h["heating"]
         out["dhw"] += h["dhw"]
-    # Start screen: use now and today under each button (heat_home in heat.sql).
+    # Start screen and overviews: use and costs now and today (heat_home in heat.sql).
     home = {"electricity": [(p1_ids.get("current_electricity_usage"), "Nu"),
-                            (heat.get("heat_home_elec_today"), "Vandaag")],
+                            (heat.get("heat_home_elec_today"), "Vandaag"),
+                            (heat.get("heat_home_elec_cost_now"), "Kosten nu"),
+                            (heat.get("heat_home_elec_cost_today"), "Kosten vandaag")],
             "heating": [(heat.get("heat_home_space_now"), "Nu"),
-                        (heat.get("heat_home_space_today"), "Vandaag")],
+                        (heat.get("heat_home_space_today"), "Vandaag"),
+                        (heat.get("heat_home_space_cost_now"), "Kosten nu"),
+                        (heat.get("heat_home_space_cost_today"), "Kosten vandaag")],
             "dhw": [(heat.get("heat_home_dhw_now"), "Nu"),
-                    (heat.get("heat_home_dhw_today"), "Vandaag")]}
-    return out, home
+                    (heat.get("heat_home_dhw_today"), "Vandaag"),
+                    (heat.get("heat_home_dhw_cost_now"), "Kosten nu"),
+                    (heat.get("heat_home_dhw_cost_today"), "Kosten vandaag")]}
+    return out, home, (p1_ids, solar)
 
 
 def write(ws, token):
-    views, home = collect(ws, token)
+    views, home, (p1_ids, solar_ids) = collect(ws, token)
+    write_energy(ws, p1_ids, solar_ids)
     existing = {d["url_path"]: d for d in ws.call("lovelace/dashboards/list")}
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
         pages = views[key]
-        if len(pages) > 1:
-            # Progressive disclosure: an overview, the pages as subviews that go back to it.
-            first = overview(path, title, pages, home.get(key, []))
-            views[key] = [titled(first, (title, ""), START)] + [
-                {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
-                 "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
-        else:
-            views[key] = [titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), START)
-                          for v in pages]
+        # Progressive disclosure: an overview, the pages as subviews that go back to it.
+        first = overview(path, title, pages, home.get(key, []))
+        views[key] = [titled(first, (title, ""), START)] + [
+            {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
+             "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
         if path not in existing:
             ws.call("lovelace/dashboards/create", url_path=path, title=title, icon=icon,
                     show_in_sidebar=True, require_admin=False, mode="storage")
@@ -180,6 +183,45 @@ def write(ws, token):
     shown = [k for k in DASHBOARDS if views[k]]
     write_sidebar(ws, [DASHBOARDS[k][0] for k in shown])
     write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown])   # last: it may restart HA
+
+
+def write_energy(ws, p1, solar):
+    """HA's energy settings, which the power sankey on Meter reads (C25): the grid per tariff
+    from the P1 meter, with the power now on the first, and the solar panels once the
+    inverter is connected (setup_solar.py --inverter). Written only when it changed."""
+    if "electricity_used_tariff_1" not in p1:
+        return
+    sources = []
+    for n, power in ((1, True), (2, False)):
+        src = {"type": "grid", "stat_energy_from": p1.get(f"electricity_used_tariff_{n}"),
+               "stat_energy_to": p1.get(f"electricity_delivered_tariff_{n}"),
+               "stat_cost": None, "entity_energy_price": None, "number_energy_price": None,
+               "stat_compensation": None, "entity_energy_price_export": None,
+               "number_energy_price_export": None, "cost_adjustment_day": 0.0,
+               "name": "Net dal" if n == 1 else "Net normaal"}
+        if power and "current_electricity_usage" in p1:
+            src["power_config"] = {"stat_rate_from": p1["current_electricity_usage"],
+                                   "stat_rate_to": p1.get("current_electricity_delivery")
+                                   or p1["current_electricity_usage"]}
+        sources.append(src)
+    if solar.get("solar_growatt_energy_total"):
+        src = {"type": "solar", "stat_energy_from": solar["solar_growatt_energy_total"],
+               "config_entry_solar_forecast": None, "name": "Zonnepanelen"}
+        if solar.get("solar_growatt_power"):
+            src["stat_rate"] = solar["solar_growatt_power"]
+        sources.append(src)
+    try:
+        current = ws.call("energy/get_prefs").get("energy_sources")
+    except m.Error:   # no energy settings yet
+        current = None
+    wanted = [{k: v for k, v in x.items()} for x in sources]
+
+    def key(srcs):
+        return [{k: x.get(k) for k in ("type", "stat_energy_from", "stat_energy_to", "name")}
+                for x in srcs or []]
+    if key(current) != key(wanted):
+        ws.call("energy/save_prefs", energy_sources=wanted)
+        m.log(f"energy settings: {len(wanted)} sources (grid per tariff" + (", solar)" if len(wanted) > 2 else ")"))
 
 
 def glance(values, go=None, columns=1):
@@ -197,7 +239,8 @@ def overview(path, title, subviews, values):
     buttons = [{"type": "button", "name": v["title"], "icon": v.get("icon"), "show_state": False,
                 "tap_action": {"action": "navigate", "navigation_path": f"/{path}/{v['path']}"}}
                for v in subviews]
-    cards = [glance(values, columns=2),
+    rows = [f"| {n} | {value(e)} |" for e, n in values if e]
+    cards = [{"type": "markdown", "content": "| | |\n|:--|--:|\n" + "\n".join(rows)} if rows else None,
              {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
     return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",
             "cards": [c for c in cards if c]}
@@ -224,6 +267,15 @@ def titled(view, head, back):
     return {**keep, "type": "sections", "max_columns": 4, "sections": [top, *sections]}
 
 
+def value(entity):
+    """Jinja for a value with its unit, with a decimal comma; euros as '€ 1,23' or '€ 0,12/u'."""
+    return ("{%% set u = state_attr('%(e)s', 'unit_of_measurement') %%}"
+            "{%% set v = states('%(e)s') %%}"
+            "{%% if v in ['unknown', 'unavailable'] %%}–"
+            "{%% elif u in ['EUR', 'EUR/h', '€', '€/u'] %%}€ {{ ('%%.2f' %% (v | float(0))) | replace('.', ',') }}{{ '/u' if u in ['EUR/h', '€/u'] else '' }}"
+            "{%% else %%}{{ v | replace('.', ',') }} {{ u | replace('/h', '/u') }}{%% endif %%}") % {"e": entity}
+
+
 def write_start(ws, dashboards):
     """The start screen (C25): per dashboard a button, with its use now and today under it,
     as the default panel for everyone instead of HA's generated home screen (weather,
@@ -234,16 +286,19 @@ def write_start(ws, dashboards):
     default config into such an entry when it starts, so the first time this saves the legacy
     config and restarts HA; after that it writes to the entry. Call it last: a restart closes
     the websocket."""
+    # The title is HA's location name (Instellingen > Systeem > Algemeen), so the address
+    # stays out of this repository.
+    name = ws.call("get_config").get("location_name") or "Thuis"
+    # Three columns: a button per dashboard, with small values (no icons) under it.
     buttons = []
     for path, title, icon, values in dashboards:
         go = {"action": "navigate", "navigation_path": f"/{path}"}
         buttons.append({"type": "vertical-stack", "cards": [
             {"type": "button", "name": title, "icon": icon, "show_state": False, "tap_action": go},
-            # Small label and value, no icons, so it fits a third of a phone.
             *[c for c in [glance(values, go)] if c]]})
-    config = {"title": "Thuis", "views": [
-        {"title": "Thuis", "path": "thuis", "icon": "mdi:home",
-         "cards": [heading("Thuis"),
+    config = {"title": name, "views": [
+        {"title": name, "path": "thuis", "icon": "mdi:home",
+         "cards": [heading(name),
                    {"type": "grid", "columns": 3, "square": False, "cards": buttons}]}]}
     core = ws.call("frontend/get_system_data", key="core").get("value") or {}
     if core.get("default_panel") != "lovelace":
@@ -252,8 +307,8 @@ def write_start(ws, dashboards):
     entry = next((d for d in ws.call("lovelace/dashboards/list") if d["url_path"] == "lovelace"), None)
     if entry:
         ws.call("lovelace/config/save", url_path="lovelace", config=config)
-        if entry.get("title") != "Thuis" or entry.get("icon") != "mdi:home":
-            ws.call("lovelace/dashboards/update", dashboard_id=entry["id"], title="Thuis", icon="mdi:home")
+        if entry.get("title") != name or entry.get("icon") != "mdi:home":
+            ws.call("lovelace/dashboards/update", dashboard_id=entry["id"], title=name, icon="mdi:home")
         m.log(f"start screen: {len(buttons)} buttons")
         return
     ws.call("lovelace/config/save", config=config)
@@ -269,7 +324,7 @@ def write_start(ws, dashboards):
         entry = next((d for d in ws2.call("lovelace/dashboards/list") if d["url_path"] == "lovelace"), None)
         if not entry:
             raise m.Error("HA did not create the dashboard 'lovelace' from the start screen")
-        ws2.call("lovelace/dashboards/update", dashboard_id=entry["id"], title="Thuis", icon="mdi:home")
+        ws2.call("lovelace/dashboards/update", dashboard_id=entry["id"], title=name, icon="mdi:home")
     finally:
         ws2.close()
     m.log(f"start screen: {len(buttons)} buttons")

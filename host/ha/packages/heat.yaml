@@ -250,6 +250,48 @@ sql:
     column: v
     query: SELECT round(gas_dhw_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
 
+  - name: Stroomkosten nu
+    unique_id: heat_home_elec_cost_now
+    icon: mdi:flash
+    unit_of_measurement: €/u
+    column: v
+    query: SELECT round(elec_cost_now::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Stroomkosten vandaag
+    unique_id: heat_home_elec_cost_today
+    icon: mdi:flash
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(elec_cost_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten verwarming nu
+    unique_id: heat_home_space_cost_now
+    icon: mdi:radiator
+    unit_of_measurement: €/u
+    column: v
+    query: SELECT round(space_cost_now::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten verwarming vandaag
+    unique_id: heat_home_space_cost_today
+    icon: mdi:radiator
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(space_cost_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten tapwater nu
+    unique_id: heat_home_dhw_cost_now
+    icon: mdi:shower-head
+    unit_of_measurement: €/u
+    column: v
+    query: SELECT round(dhw_cost_now::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten tapwater vandaag
+    unique_id: heat_home_dhw_cost_today
+    icon: mdi:shower-head
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(dhw_cost_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
   # --- Results (heat_results, hourly) ----------------------------------------------------
   - name: Warmtepomp besparing per jaar
     unique_id: heat_forecast

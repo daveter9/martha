@@ -178,6 +178,10 @@ def views(ids, electricity_costs=(), gas_costs=()):
         "Meter", "meter", "mdi:meter-electric", usage=energy, costs=electricity_costs,
         today=[*tiles("current_electricity_usage", "current_electricity_delivery",
                       "electricity_active_tariff", "timestamp"),
+               # Where the electricity comes from (grid, solar) and goes to (house, grid), now;
+               # from HA's energy settings, which dashboards.write_energy fills.
+               {"type": "power-sankey", "title": "Stroom nu: waar vandaan, waar heen",
+                "layout": "auto", "grid_options": {"columns": "full"}},
                history("Vermogen (24 uur)", ents(power))],
         details=[
             *tiles("instantaneous_voltage_l1", "instantaneous_current_l1"),

@@ -90,6 +90,9 @@ def write_gas_role(token):
     if "gas_meter_reading" not in ids:
         raise m.Error("P1 gas meter not found (DSMR key gas_meter_reading)")
     set_role("gas", ids["gas_meter_reading"])
+    # The power now, for the electricity costs now on the start screen (heat_home).
+    if "current_electricity_usage" in ids:
+        set_role("elec_power", ids["current_electricity_usage"])
 
 
 def weather_entity(ws):
