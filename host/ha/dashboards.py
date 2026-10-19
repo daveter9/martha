@@ -193,7 +193,11 @@ def write_start(ws, dashboards):
         go = {"action": "navigate", "navigation_path": f"/{path}"}
         buttons.append({"type": "vertical-stack", "cards": [
             {"type": "button", "name": title, "icon": icon, "show_state": False, "tap_action": go},
-            *({"type": "entity", "entity": e, "name": n, "tap_action": go} for e, n in values if e)]})
+            # A glance card: small label and value, no icons, so it fits a third of a phone.
+            *([{"type": "glance", "show_icon": False, "show_name": True, "show_state": True,
+                "columns": 1, "state_color": False,
+                "entities": [{"entity": e, "name": n, "tap_action": go} for e, n in values if e]}]
+              if any(e for e, _ in values) else [])]})
     config = {"title": "Thuis", "views": [
         {"title": "Thuis", "path": "thuis", "icon": "mdi:home",
          "cards": [heading("Thuis"),
