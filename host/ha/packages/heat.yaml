@@ -106,6 +106,113 @@ sql:
     column: v
     query: SELECT round(gas_dhw::numeric, 3) AS v FROM heat_totals() LIMIT 1;
 
+  # --- Split: heating, hot water and fixed costs (total = the three together) -----------
+  - name: Verwarming gas
+    unique_id: heat_total_gas_space
+    icon: mdi:radiator
+    unit_of_measurement: m³
+    device_class: gas
+    state_class: total
+    column: v
+    query: SELECT round(gas_space::numeric, 3) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Verwarming kosten CV-ketel
+    unique_id: heat_space_cv
+    icon: mdi:radiator
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cv_space::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Verwarming kosten warmtepomp
+    unique_id: heat_space_wp
+    icon: mdi:radiator
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(wp_space::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Verwarming kosten CV-ketel marktprijs
+    unique_id: heat_space_cv_mkt
+    icon: mdi:radiator
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cv_space_mkt::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Verwarming kosten warmtepomp marktprijs
+    unique_id: heat_space_wp_mkt
+    icon: mdi:radiator
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(wp_space_mkt::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Tapwater kosten CV-ketel
+    unique_id: heat_dhw_cv
+    icon: mdi:shower-head
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cv_dhw::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Tapwater kosten warmtepomp
+    unique_id: heat_dhw_wp
+    icon: mdi:shower-head
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(wp_dhw::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Tapwater kosten CV-ketel marktprijs
+    unique_id: heat_dhw_cv_mkt
+    icon: mdi:shower-head
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cv_dhw_mkt::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Tapwater kosten warmtepomp marktprijs
+    unique_id: heat_dhw_wp_mkt
+    icon: mdi:shower-head
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(wp_dhw_mkt::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Vaste kosten CV-ketel
+    unique_id: heat_fixed_cv
+    icon: mdi:fire
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(cv_fixed::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Vaste kosten warmtepomp
+    unique_id: heat_fixed_wp
+    icon: mdi:heat-pump-outline
+    unit_of_measurement: EUR
+    device_class: monetary
+    state_class: total
+    column: v
+    query: SELECT round(wp_fixed::numeric, 4) AS v FROM heat_totals() LIMIT 1;
+
+  - name: Verwarming en tapwater per dag
+    unique_id: heat_split_days
+    icon: mdi:table
+    column: v
+    # The state is the number of days in the table; the table is an attribute.
+    query: SELECT (SELECT count(*) FROM (SELECT 1 FROM heat_1d ORDER BY day DESC LIMIT 14) d) AS v, heat_split_days(14) AS tabel;
+
   # --- Results (heat_results, hourly) ----------------------------------------------------
   - name: Warmtepomp besparing per jaar
     unique_id: heat_forecast
@@ -116,6 +223,7 @@ sql:
     query: >-
       SELECT round(f.value::numeric) AS v,
              f.detail AS tabel,
+             (SELECT detail FROM heat_result WHERE key = 'year_split') AS tabel_splitsing,
              (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_cv') AS kosten_cv,
              (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_wp') AS kosten_warmtepomp,
              (SELECT round(value::numeric) FROM heat_result WHERE key = 'year_cost_cv_mkt') AS kosten_cv_marktprijs,

@@ -513,7 +513,13 @@ ALTER TABLE heat_1m
     ADD COLUMN IF NOT EXISTS p_gas_mkt   double precision,  -- EUR/m³, market, all-in
     ADD COLUMN IF NOT EXISTS p_elec_mkt  double precision,  -- EUR/kWh, market, all-in
     ADD COLUMN IF NOT EXISTS cv_cost_mkt double precision,  -- EUR, gas, market
-    ADD COLUMN IF NOT EXISTS wp_cost_mkt double precision;  -- EUR, electricity, market
+    ADD COLUMN IF NOT EXISTS wp_cost_mkt double precision,  -- EUR, electricity, market
+    -- The hot water part of the variable costs; heating is the rest (C26 in DESIGN.md).
+    ADD COLUMN IF NOT EXISTS wp_kwh_dhw      double precision,  -- heat pump electricity for hot water
+    ADD COLUMN IF NOT EXISTS cv_cost_dhw     double precision,
+    ADD COLUMN IF NOT EXISTS cv_cost_dhw_mkt double precision,
+    ADD COLUMN IF NOT EXISTS wp_cost_dhw     double precision,
+    ADD COLUMN IF NOT EXISTS wp_cost_dhw_mkt double precision;
 
 DROP VIEW IF EXISTS heat_fit_days;
 CREATE TABLE IF NOT EXISTS heat_1d (
@@ -540,7 +546,12 @@ ALTER TABLE heat_1d
     ADD COLUMN IF NOT EXISTS dhw_runs     integer,          -- tap water runs (showers etc.)
     ADD COLUMN IF NOT EXISTS cv_cost_mkt  double precision,
     ADD COLUMN IF NOT EXISTS wp_cost_mkt  double precision,
-    ADD COLUMN IF NOT EXISTS mkt_minutes  integer;          -- minutes with both market prices
+    ADD COLUMN IF NOT EXISTS mkt_minutes  integer,          -- minutes with both market prices
+    ADD COLUMN IF NOT EXISTS wp_kwh_dhw      double precision,
+    ADD COLUMN IF NOT EXISTS cv_cost_dhw     double precision,
+    ADD COLUMN IF NOT EXISTS cv_cost_dhw_mkt double precision,
+    ADD COLUMN IF NOT EXISTS wp_cost_dhw     double precision,
+    ADD COLUMN IF NOT EXISTS wp_cost_dhw_mkt double precision;
 
 -- Columns of an earlier version (cooking, hybrid heat pump).
 ALTER TABLE heat_1m
@@ -681,17 +692,22 @@ BEGIN
         SELECT c4.*,
                q_space / cop_space * (1 - f_backup) + q_space * f_backup + q_dhw / cop_dhw AS wp_kwh,
                q_space * f_backup AS wp_backup_kwh,
+               q_dhw / cop_dhw AS wp_kwh_dhw,
                gas_fixed_month / month_minutes AS gas_fixed_min
         FROM c4
     ),
+    -- The solar surplus and so the electricity costs are shared in proportion to the kWh.
     c6 AS (
-        SELECT c5.*, least(wp_kwh, export_kwh) AS wp_solar_kwh FROM c5
+        SELECT c5.*, least(wp_kwh, export_kwh) AS wp_solar_kwh,
+               CASE WHEN wp_kwh > 0 THEN wp_kwh_dhw / wp_kwh ELSE 0 END AS f_dhw
+        FROM c5
     )
     INSERT INTO heat_1m AS h (
         minute, gas, gas_space, gas_dhw, gas_class, temp, temp_source, degree_hours,
         q_space, q_dhw, t_supply, cop_space, cop_dhw, f_backup, tariff, p_gas, p_elec,
         p_elec_source, p_gas_mkt, p_elec_mkt, export_kwh, p_export, wp_kwh, wp_backup_kwh,
-        wp_solar_kwh, cv_cost, cv_cost_mkt, cv_fixed, wp_cost, wp_cost_mkt, wp_fixed)
+        wp_solar_kwh, cv_cost, cv_cost_mkt, cv_fixed, wp_cost, wp_cost_mkt, wp_fixed,
+        wp_kwh_dhw, cv_cost_dhw, cv_cost_dhw_mkt, wp_cost_dhw, wp_cost_dhw_mkt)
     SELECT t, gas, gas_space, gas_dhw, gas_class, temp, temp_source,
            greatest(v_limit - temp, 0) / 60,
            q_space, q_dhw, t_supply, cop_space, cop_dhw, f_backup, tariff, p_gas, p_elec,
@@ -702,7 +718,12 @@ BEGIN
            gas_fixed_min + maint_boiler / 525960,
            wp_solar_kwh * p_export + (wp_kwh - wp_solar_kwh) * p_elec,
            wp_solar_kwh * p_export + (wp_kwh - wp_solar_kwh) * p_elec_mkt,
-           maint_hp / 525960
+           maint_hp / 525960,
+           wp_kwh_dhw,
+           gas_dhw * p_gas,
+           gas_dhw * p_gas_mkt,
+           f_dhw * (wp_solar_kwh * p_export + (wp_kwh - wp_solar_kwh) * p_elec),
+           f_dhw * (wp_solar_kwh * p_export + (wp_kwh - wp_solar_kwh) * p_elec_mkt)
     FROM c6
     ON CONFLICT (minute) DO UPDATE SET
         gas = EXCLUDED.gas, gas_space = EXCLUDED.gas_space, gas_dhw = EXCLUDED.gas_dhw,
@@ -719,7 +740,10 @@ BEGIN
         wp_kwh = EXCLUDED.wp_kwh, wp_backup_kwh = EXCLUDED.wp_backup_kwh,
         wp_solar_kwh = EXCLUDED.wp_solar_kwh,
         cv_cost = EXCLUDED.cv_cost, cv_cost_mkt = EXCLUDED.cv_cost_mkt, cv_fixed = EXCLUDED.cv_fixed,
-        wp_cost = EXCLUDED.wp_cost, wp_cost_mkt = EXCLUDED.wp_cost_mkt, wp_fixed = EXCLUDED.wp_fixed;
+        wp_cost = EXCLUDED.wp_cost, wp_cost_mkt = EXCLUDED.wp_cost_mkt, wp_fixed = EXCLUDED.wp_fixed,
+        wp_kwh_dhw = EXCLUDED.wp_kwh_dhw, cv_cost_dhw = EXCLUDED.cv_cost_dhw,
+        cv_cost_dhw_mkt = EXCLUDED.cv_cost_dhw_mkt, wp_cost_dhw = EXCLUDED.wp_cost_dhw,
+        wp_cost_dhw_mkt = EXCLUDED.wp_cost_dhw_mkt;
     GET DIAGNOSTICS v_rows = ROW_COUNT;
 
     PERFORM heat_recompute_days((v_from AT TIME ZONE 'Europe/Amsterdam')::date,
@@ -735,7 +759,8 @@ BEGIN
     INSERT INTO heat_1d (day, minutes, day_minutes, measured_minutes, temp_avg, degree_hours,
                          gas, gas_space, gas_dhw, q_space, q_dhw, wp_kwh, wp_backup_kwh,
                          wp_solar_kwh, cv_cost, cv_fixed, wp_cost, wp_fixed, dhw_runs,
-                         cv_cost_mkt, wp_cost_mkt, mkt_minutes)
+                         cv_cost_mkt, wp_cost_mkt, mkt_minutes, wp_kwh_dhw, cv_cost_dhw,
+                         cv_cost_dhw_mkt, wp_cost_dhw, wp_cost_dhw_mkt)
     SELECT d.day, count(*),
            extract(epoch FROM ((d.day + 1)::timestamp AT TIME ZONE 'Europe/Amsterdam')
                             - (d.day::timestamp AT TIME ZONE 'Europe/Amsterdam'))::integer / 60,
@@ -747,7 +772,8 @@ BEGIN
            -- a run starts at a tap water minute after a minute without
            count(*) FILTER (WHERE gas_class = 'tapwater' AND prev_class IS DISTINCT FROM 'tapwater'),
            sum(cv_cost_mkt), sum(wp_cost_mkt),
-           count(*) FILTER (WHERE p_gas_mkt IS NOT NULL AND p_elec_mkt IS NOT NULL)
+           count(*) FILTER (WHERE p_gas_mkt IS NOT NULL AND p_elec_mkt IS NOT NULL),
+           sum(wp_kwh_dhw), sum(cv_cost_dhw), sum(cv_cost_dhw_mkt), sum(wp_cost_dhw), sum(wp_cost_dhw_mkt)
     FROM (
         SELECT h.*, (minute AT TIME ZONE 'Europe/Amsterdam')::date AS day,
                lag(gas_class) OVER (ORDER BY minute) AS prev_class
@@ -763,20 +789,60 @@ END $$;
 -- them into long-term statistics (sums per day, week, month, year). A changed model
 -- parameter recomputes all history, so a total can then jump. The market totals only count
 -- minutes with a market price; the fixed costs are the same as on the contract.
+-- Split (C26): total = heating + hot water + fixed costs; the *_space and *_dhw columns are
+-- variable costs only.
 DROP FUNCTION IF EXISTS heat_totals();
 CREATE OR REPLACE FUNCTION heat_totals()
 RETURNS TABLE (cv double precision, wp double precision,
                cv_mkt double precision, wp_mkt double precision,
                cv_var double precision, wp_var double precision,
                gas double precision, gas_dhw double precision, heat double precision,
-               wp_kwh double precision, days double precision)
+               wp_kwh double precision, days double precision,
+               gas_space double precision,
+               cv_space double precision, wp_space double precision,
+               cv_space_mkt double precision, wp_space_mkt double precision,
+               cv_dhw double precision, wp_dhw double precision,
+               cv_dhw_mkt double precision, wp_dhw_mkt double precision,
+               cv_fixed double precision, wp_fixed double precision)
 LANGUAGE sql STABLE AS $$
     SELECT sum(cv_cost + cv_fixed), sum(wp_cost + wp_fixed),
            sum(coalesce(cv_cost_mkt, 0) + cv_fixed), sum(coalesce(wp_cost_mkt, 0) + wp_fixed),
            sum(cv_cost), sum(wp_cost),
            sum(gas), sum(gas_dhw), sum(q_space + q_dhw), sum(wp_kwh),
-           sum(minutes) / 1440.0
+           sum(minutes) / 1440.0,
+           sum(gas_space),
+           sum(cv_cost - coalesce(cv_cost_dhw, 0)), sum(wp_cost - coalesce(wp_cost_dhw, 0)),
+           sum(coalesce(cv_cost_mkt, 0) - coalesce(cv_cost_dhw_mkt, 0)),
+           sum(coalesce(wp_cost_mkt, 0) - coalesce(wp_cost_dhw_mkt, 0)),
+           sum(coalesce(cv_cost_dhw, 0)), sum(coalesce(wp_cost_dhw, 0)),
+           sum(coalesce(cv_cost_dhw_mkt, 0)), sum(coalesce(wp_cost_dhw_mkt, 0)),
+           sum(cv_fixed), sum(wp_fixed)
     FROM heat_1d
+$$;
+
+-- A number with two decimals and a decimal comma.
+CREATE OR REPLACE FUNCTION heat_nl(p double precision) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT replace(to_char(p, 'FM999990.00'), '.', ',')
+$$;
+
+-- The split per day as a markdown table (newest first), for the dashboards: gas and the
+-- variable costs at contract prices, heating and hot water apart.
+CREATE OR REPLACE FUNCTION heat_split_days(p_days integer DEFAULT 14)
+RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT E'| Dag | Gas verw. (m³) | Gas tapw. (m³) | Tapbeurten | CV verw. (€) | CV tapw. (€) | WP verw. (€) | WP tapw. (€) |\n'
+           '|---|---:|---:|---:|---:|---:|---:|---:|\n'
+           || coalesce(string_agg(format('| %s %s | %s | %s | %s | %s | %s | %s | %s |',
+                  (ARRAY['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'])[extract(isodow FROM day)::int],
+                  to_char(day, 'DD-MM'),
+                  heat_nl(gas_space), heat_nl(gas_dhw), coalesce(dhw_runs, 0),
+                  heat_nl(cv_cost - coalesce(cv_cost_dhw, 0)), heat_nl(coalesce(cv_cost_dhw, 0)),
+                  heat_nl(wp_cost - coalesce(wp_cost_dhw, 0)), heat_nl(coalesce(wp_cost_dhw, 0))),
+                  E'\n' ORDER BY day DESC), '')
+           || E'\n\nEnergiekosten met de contractprijzen, zonder vaste kosten (gasaansluiting, onderhoud). '
+              'De dag van vandaag loopt nog.'
+    FROM (SELECT * FROM heat_1d ORDER BY day DESC LIMIT p_days) d
 $$;
 
 -- --- Heat loss and forecast -------------------------------------------------------------
@@ -893,12 +959,15 @@ BEGIN
     IF v_h IS NULL THEN
         DELETE FROM heat_result WHERE key LIKE 'year\_%' OR key = 'forecast';
     ELSE
-        SELECT sum(gas) AS gas, sum(q) AS q, sum(wp) AS wp, sum(wp_backup) AS wp_backup
+        SELECT sum(gas) AS gas, sum(q) AS q, sum(wp) AS wp, sum(wp_backup) AS wp_backup,
+               sum(gas_dhw) AS gas_dhw, sum(wp_dhw) AS wp_dhw
         INTO y
         FROM (
             SELECT q_space / (k_gas * eff_h) + v_dhw / 24 AS gas,
+                   v_dhw / 24 AS gas_dhw,
                    q_space + q_dhw AS q,
                    q_space / cop_s * (1 - f_b) + q_space * f_b + q_dhw / cop_d AS wp,
+                   q_dhw / cop_d AS wp_dhw,
                    q_space * f_b AS wp_backup
             FROM (
                 SELECT g.*,
@@ -926,6 +995,31 @@ BEGIN
             ('year_cost_cv_mkt', v_cv_m, 'Marktprijs (gemiddelde laatste 30 dagen).', now()),
             ('year_cost_wp_mkt', v_wp_m, 'Marktprijs (gemiddelde laatste 30 dagen).', now()),
             ('year_wp_kwh', y.wp, NULL, now()),
+            ('year_split', y.gas - y.gas_dhw, format(
+E'| Per jaar | Verwarming | Tapwater | Vast | Totaal |\n|---|---:|---:|---:|---:|\n'
+'| Gas CV-ketel (m³) | %s | %s | | %s |\n'
+'| Stroom warmtepomp (kWh) | %s | %s | | %s |\n'
+'| CV-ketel, contract (€) | %s | %s | %s | **%s** |\n'
+'| Warmtepomp, contract (€) | %s | %s | %s | **%s** |\n'
+'| CV-ketel, markt (€) | %s | %s | %s | **%s** |\n'
+'| Warmtepomp, markt (€) | %s | %s | %s | **%s** |\n\n'
+'Tapwater: het gemeten gemiddelde (%s m³ gas per dag), voor de warmtepomp gemaakt met de COP bij %s °C. '
+'Vast: gasaansluiting en onderhoud CV-ketel, of onderhoud warmtepomp; die horen bij geen van beide.',
+                round((y.gas - y.gas_dhw)::numeric), round(y.gas_dhw::numeric), round(y.gas::numeric),
+                round((y.wp - y.wp_dhw)::numeric), round(y.wp_dhw::numeric), round(y.wp::numeric),
+                round(((y.gas - y.gas_dhw) * p_gas)::numeric), round((y.gas_dhw * p_gas)::numeric),
+                round((p_fixed + m_boiler)::numeric), round(v_cv::numeric),
+                round(((y.wp - y.wp_dhw) * p_elec)::numeric), round((y.wp_dhw * p_elec)::numeric),
+                round(m_hp::numeric), round(v_wp::numeric),
+                coalesce(round(((y.gas - y.gas_dhw) * p_gas_m)::numeric)::text, '–'),
+                coalesce(round((y.gas_dhw * p_gas_m)::numeric)::text, '–'),
+                round((p_fixed + m_boiler)::numeric), coalesce(round(v_cv_m::numeric)::text, '–'),
+                coalesce(round(((y.wp - y.wp_dhw) * p_elec_m)::numeric)::text, '–'),
+                coalesce(round((y.wp_dhw * p_elec_m)::numeric)::text, '–'),
+                round(m_hp::numeric), coalesce(round(v_wp_m::numeric)::text, '–'),
+                heat_nl(v_dhw), v_dhw_t), now()),
+            ('year_cost_cv_dhw', y.gas_dhw * p_gas, 'Tapwater, contractprijs.', now()),
+            ('year_cost_wp_dhw', y.wp_dhw * p_elec, 'Tapwater, contractprijs.', now()),
             ('year_scop', y.q / nullif(y.wp - y.wp_backup, 0), 'SCOP: warmte / stroom van de warmtepomp zelf (zonder element).', now()),
             ('forecast', v_cv - v_wp, format(
 E'| | CV-ketel | Warmtepomp |\n|---|---:|---:|\n'
@@ -1046,6 +1140,8 @@ E'### Minuut %s\n\n'
 '**8. Kosten deze minuut** (vaste kosten: gasaansluiting per maand en onderhoud per jaar, per minuut):\n\n'
 '| | Contract | Markt | Vast |\n|---|---:|---:|---:|\n'
 '| CV-ketel | € %s | € %s | € %s |\n| Warmtepomp | € %s | € %s | € %s |\n\n'
+'Waarvan tapwater (contract): CV € %s (het gas voor warm water), warmtepomp € %s (%s %% van de stroom, '
+'warm water / COP warm water). De rest is verwarming; de vaste kosten tellen bij geen van beide.\n\n'
 '**Op %s:** gas %s m³ (warm water %s m³), warmte %s kWh, gem. %s °C. '
 'CV € %s (markt € %s), warmtepomp € %s (markt € %s), inclusief vaste kosten.',
         to_char(h.minute AT TIME ZONE 'Europe/Amsterdam', 'YYYY-MM-DD HH24:MI'),
@@ -1072,6 +1168,8 @@ E'### Minuut %s\n\n'
         to_char(h.export_kwh, fmt), to_char(h.p_export, 'FM0.0000'),
         to_char(h.cv_cost, eur), coalesce(to_char(h.cv_cost_mkt, eur), '–'), to_char(h.cv_fixed, eur),
         to_char(h.wp_cost, eur), coalesce(to_char(h.wp_cost_mkt, eur), '–'), to_char(h.wp_fixed, eur),
+        to_char(coalesce(h.cv_cost_dhw, 0), eur), to_char(coalesce(h.wp_cost_dhw, 0), eur),
+        round((100 * coalesce(h.wp_kwh_dhw / nullif(h.wp_kwh, 0), 0))::numeric),
         to_char(dd.day, 'YYYY-MM-DD'), to_char(dd.gas, 'FM9990.000'), to_char(dd.gas_dhw, 'FM9990.000'),
         to_char(dd.q_space + dd.q_dhw, 'FM9990.0'), round(dd.temp_avg::numeric, 1),
         to_char(dd.cv_cost + dd.cv_fixed, 'FM9990.00'), coalesce(to_char(dd.cv_cost_mkt + dd.cv_fixed, 'FM9990.00'), '–'),

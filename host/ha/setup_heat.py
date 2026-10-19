@@ -249,35 +249,46 @@ def views(ids, rows):
         return {"type": "markdown", "title": title,
                 "content": f"{{{{ state_attr('{e(uid)}', '{attribute}') }}}}"}
 
-    costs = ["heat_total_cv", "heat_total_wp"]
-    costs_mkt = ["heat_total_cv_mkt", "heat_total_wp_mkt"]
-    comparison = [
-        {"type": "energy-date-selection"},
-        {"type": "grid", "columns": 2, "square": False, "cards": [
-            stat("heat_total_cv", "CV-ketel (contract)"),
-            stat("heat_total_wp", "Warmtepomp (contract)"),
-            stat("heat_total_cv_mkt", "CV-ketel (marktprijs)"),
-            stat("heat_total_wp_mkt", "Warmtepomp (marktprijs)"),
-        ]},
-        {"type": "statistics-graph", "title": "Kosten in de gekozen periode", "chart_type": "bar",
-         "entities": [e(u) for u in costs + costs_mkt if e(u)], "stat_types": ["change"],
-         "energy_date_selection": True},
+    def split(part, title):
+        """Cards for one part (space or dhw): its costs per period, day and month."""
+        uids = [f"heat_{part}_cv", f"heat_{part}_wp", f"heat_{part}_cv_mkt", f"heat_{part}_wp_mkt"]
+        return [
+            {"type": "energy-date-selection"},
+            {"type": "grid", "columns": 2, "square": False, "cards": [
+                stat(uids[0], "CV-ketel (contract)"), stat(uids[1], "Warmtepomp (contract)"),
+                stat(uids[2], "CV-ketel (marktprijs)"), stat(uids[3], "Warmtepomp (marktprijs)"),
+            ]},
+            {"type": "statistics-graph", "title": f"{title} in de gekozen periode", "chart_type": "bar",
+             "entities": [e(u) for u in uids if e(u)], "stat_types": ["change"],
+             "energy_date_selection": True},
+            graph(f"{title} per dag, contract (30 dagen)", uids[:2], "day", 30),
+            graph(f"{title} per dag, marktprijs (30 dagen)", uids[2:], "day", 30),
+            graph(f"{title} per maand (1 jaar)", uids, "month", 365),
+        ]
+
+    per_day = md("Per dag: verwarming en tapwater", "heat_split_days", "tabel")
+    gas_split = graph("Gas per dag: verwarming en tapwater (30 dagen)",
+                      ["heat_total_gas_space", "heat_total_gas_dhw"], "day", 30)
+    comparison = split("space", "Kosten verwarming") + [
         {"type": "markdown", "content":
-            "Wat verwarming en warm water **werkelijk** kosten met de CV-ketel, en wat precies dezelfde "
-            "warmte zou kosten met een **volledig elektrische** warmtepomp (gasaansluiting eraf). Per "
-            "minuut berekend uit het gasverbruik van de P1-meter en de buitentemperatuur, inclusief de "
-            "vaste kosten van de gasaansluiting en onderhoud. Twee keer: met je **contractprijzen**, en "
-            "met de **marktprijs** van een dynamisch contract (day-ahead plus opslag, energiebelasting en "
-            "btw). Hoe: tab *Berekening*. Op welke aannames: tab *Aannames*."},
-        graph("Kosten per dag, contract (30 dagen)", costs, "day", 30),
-        graph("Kosten per dag, marktprijs (30 dagen)", costs_mkt, "day", 30),
-        graph("Kosten per maand (1 jaar)", costs + costs_mkt, "month", 365),
-        graph("Warmte, gas voor warm water en stroom per dag (30 dagen)",
-              ["heat_total_heat", "heat_total_gas_dhw", "heat_total_wp_kwh"], "day", 30),
-        {"type": "entities", "title": "Tot nu toe", "entities": [
+            "Wat **verwarmen** werkelijk kost met de CV-ketel, en wat precies dezelfde warmte zou kosten "
+            "met een **volledig elektrische** warmtepomp. Per minuut berekend uit het gasverbruik van de "
+            "P1-meter en de buitentemperatuur, met je **contractprijzen** en met de **marktprijs** van een "
+            "dynamisch contract (day-ahead plus opslag, energiebelasting en btw).\n\n"
+            "Warm water staat apart op het dashboard *Tapwater*. De **vaste kosten** (gasaansluiting, "
+            "onderhoud) horen bij geen van beide; ze staan hieronder, met het totaal van alles samen. "
+            "Hoe: tab *Berekening*. Op welke aannames: tab *Aannames*."},
+        gas_split,
+        per_day,
+        {"type": "entities", "title": "Tot nu toe: verwarming", "entities": [
+            e("heat_total_gas_space"), e("heat_space_cv"), e("heat_space_wp"),
+            e("heat_space_cv_mkt"), e("heat_space_wp_mkt")]},
+        {"type": "entities", "title": "Tot nu toe: alles samen (verwarming + tapwater + vast)", "entities": [
+            e("heat_fixed_cv"), e("heat_fixed_wp"),
             e("heat_total_cv"), e("heat_total_wp"), e("heat_total_cv_mkt"), e("heat_total_wp_mkt"),
-            e("heat_total_heat"), e("heat_total_gas_dhw"), e("heat_total_wp_kwh"),
-            e("heat_gas_market")]},
+            e("heat_total_heat"), e("heat_total_wp_kwh"), e("heat_gas_market")]},
+        graph("Totaal per maand, met vaste kosten (1 jaar)",
+              ["heat_total_cv", "heat_total_wp", "heat_total_cv_mkt", "heat_total_wp_mkt"], "month", 365),
     ]
     calculation = [
         md("Hoe één minuut wordt berekend", "heat_explain", "uitleg"),
@@ -288,6 +299,7 @@ def views(ids, rows):
     ]
     forecast = [
         md("Per jaar, met de temperaturen van een gemiddeld jaar", "heat_forecast", "tabel"),
+        md("Per jaar: verwarming en tapwater", "heat_forecast", "tabel_splitsing"),
         {"type": "entities", "title": "Warmteverlies van het huis", "entities": [
             e("heat_loss"),
             {"type": "attribute", "entity": e("heat_loss"), "attribute": "vermogen_bij_min10_kw",
@@ -308,25 +320,28 @@ def views(ids, rows):
     assumptions = [md("Aannames en wat je kunt verfijnen", "heat_assumptions", "tabel")]
 
     by_key = {p["key"] for p in rows}
-    dhw = [
-        {"type": "energy-date-selection"},
-        stat("heat_total_gas_dhw", "Gas voor warm water"),
-        {"type": "statistics-graph", "title": "Gas voor warm water in de gekozen periode",
-         "chart_type": "bar", "entities": [e("heat_total_gas_dhw")], "stat_types": ["change"],
-         "energy_date_selection": True},
+    dhw = split("dhw", "Kosten tapwater") + [
+        {"type": "grid", "columns": 2, "square": False, "cards": [
+            stat("heat_total_gas_dhw", "Gas voor warm water"),
+            {"type": "entity", "entity": e("heat_loss"), "attribute": "warm_water_m3_per_dag",
+             "name": "Gemiddeld per dag", "unit": "m³"},
+        ]},
         graph("Gas voor warm water per dag (30 dagen)", ["heat_total_gas_dhw"], "day", 30),
         graph("Gas voor warm water per maand (1 jaar)", ["heat_total_gas_dhw"], "month", 365),
-        {"type": "entities", "title": "Tot nu toe", "entities": [
-            e("heat_total_gas_dhw"),
-            {"type": "attribute", "entity": e("heat_loss"), "attribute": "warm_water_m3_per_dag",
-             "name": "Gemiddeld per dag", "suffix": "m³/dag"}]},
+        per_day,
+        md("Per jaar: verwarming en tapwater", "heat_forecast", "tabel_splitsing"),
+        {"type": "entities", "title": "Tot nu toe: tapwater", "entities": [
+            e("heat_total_gas_dhw"), e("heat_dhw_cv"), e("heat_dhw_wp"),
+            e("heat_dhw_cv_mkt"), e("heat_dhw_wp_mkt")]},
         {"type": "markdown", "content":
             "Het gas voor **warm water** (douchen, kraan) wordt afgeleid uit je werkelijke verbruik: de "
             "combiketel stookt voor tapwater kort en vol. Een reeks gasmeldingen vanaf het ingestelde "
             "*vermogen* die niet langer duurt dan *hooguit zo lang*, of een losse melding, telt als warm "
-            "water; de rest is verwarming. De kosten van warm water zitten in de vergelijking op het "
-            "dashboard *Verwarming*; de warmtepomp maakt het warm water met de COP bij de ingestelde "
-            "*temperatuur warm water*."},
+            "water; de rest is verwarming.\n\n"
+            "**Kosten:** met de CV-ketel het gas voor warm water maal de gasprijs. Met de warmtepomp de stroom "
+            "voor warm water (warmte / COP bij de ingestelde *temperatuur warm water*) maal de stroomprijs; "
+            "het zonne-overschot van die minuut wordt naar verhouding verdeeld over verwarming en tapwater. "
+            "Vaste kosten tellen niet mee: die staan op *Verwarming → Kosten*."},
         {"type": "entities", "title": "Herkenning en rendement (geldt voor alle historie)",
          "entities": [f"input_number.heat_{k}" for k in DHW_KEYS if k in by_key]},
     ]
@@ -358,7 +373,7 @@ def views(ids, rows):
 
     if not ids:
         return {"heating": [], "dhw": []}
-    heating = [("Warmtepomp", "warmtepomp", "mdi:scale-balance", comparison),
+    heating = [("Kosten", "kosten", "mdi:scale-balance", comparison),
                ("Berekening", "berekening", "mdi:calculator-variant-outline", calculation),
                ("Prognose", "prognose", "mdi:calendar-cash", forecast),
                ("Aannames", "aannames", "mdi:clipboard-list-outline", assumptions),

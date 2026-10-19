@@ -122,11 +122,18 @@ CC BY 4.0, in `host/db/heat_reference.sql`). Van 2016–2025 ligt 2019 met 2010 
 - **Jobs:** `heat_job` (elke 5 minuten) rekent de minuten sinds de vorige run en altijd vanaf de
   middernacht vóór de laatste 6 uur, en na een gewijzigde instelling alle historie.
   `heat_results_job` (elk uur) maakt de fit en de prognose.
-- **Dashboard** Verwarming (`/huis-verwarming`, C25): *Gas*, *Warmtepomp* (contract en markt per periode, dag en maand),
+- **Dashboard** Verwarming (`/huis-verwarming`, C25): *Gas*, *Kosten* (verwarming, contract en markt per periode,
+  dag en maand, de splitsing per dag, en het totaal met vaste kosten),
   *Berekening* (één minuut stap voor stap, met de tapbeurten van die dag, plus de formules),
   *Prognose*, *Aannames* (elke aanname met waarde, standaard of ingevuld, uitleg en hoe te
   verfijnen, plus de datakwaliteit) en *Instellingen*. Het warm water staat apart op het dashboard
-  Tapwater (`/huis-tapwater`), met de instellingen van de herkenning.
+  Tapwater (`/huis-tapwater`): gas en kosten voor warm water, per dag en per jaar, met de instellingen
+  van de herkenning.
+- **Splitsing verwarming en tapwater (C26):** per minuut `cv_cost_dhw`, `wp_cost_dhw` (en tegen
+  marktprijs) en `wp_kwh_dhw`; verwarming = totaal min tapwater. Het zonne-overschot wordt naar
+  verhouding van de kWh verdeeld. Vaste kosten horen bij geen van beide, dus totaal = verwarming +
+  tapwater + vast (getest: het verschil is 0). `heat_split_days()` geeft de laatste 14 dagen als
+  tabel, `year_split` de prognose per jaar.
 - **Getest op martha (2026-10-19):** in transacties die werden teruggedraaid: de migratie vanaf de
   eerste versie, een verse installatie en opnieuw toepassen. Daarna live. De herkenning van warm
   water klopt met de gezien douchebeurten (bijv. 19-10 10:25–10:40, 0,485 m³).
