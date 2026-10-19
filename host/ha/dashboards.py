@@ -224,23 +224,13 @@ def write_energy(ws, p1, solar):
         m.log(f"energy settings: {len(wanted)} sources (grid per tariff" + (", solar)" if len(wanted) > 2 else ")"))
 
 
-def glance(values, go=None, columns=1):
-    """Small labels and values without icons (use now and today)."""
-    entities = [{"entity": e, "name": n, **({"tap_action": go} if go else {})} for e, n in values if e]
-    if not entities:
-        return None
-    return {"type": "glance", "show_icon": False, "show_name": True, "show_state": True,
-            "columns": columns, "state_color": False, "entities": entities}
-
-
 def overview(path, title, subviews, values):
     """Progressive disclosure (C25): a dashboard opens on an overview with its use now and
     today and a button per page; the pages are subviews (no tab bar, a back arrow)."""
     buttons = [{"type": "button", "name": v["title"], "icon": v.get("icon"), "show_state": False,
                 "tap_action": {"action": "navigate", "navigation_path": f"/{path}/{v['path']}"}}
                for v in subviews]
-    rows = [f"| {n} | {value(e)} |" for e, n in values if e]
-    cards = [{"type": "markdown", "content": "| | |\n|:--|--:|\n" + "\n".join(rows)} if rows else None,
+    cards = [now_today(values, horizontal=True),
              {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
     return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",
             "cards": [c for c in cards if c]}
@@ -268,12 +258,35 @@ def titled(view, head, back):
 
 
 def value(entity):
-    """Jinja for a value with its unit, with a decimal comma; euros as '€ 1,23' or '€ 0,12/u'."""
+    """Jinja for a value with its unit, with a decimal comma; euros as '1,23€' or '0,12€/u'."""
     return ("{%% set u = state_attr('%(e)s', 'unit_of_measurement') %%}"
             "{%% set v = states('%(e)s') %%}"
             "{%% if v in ['unknown', 'unavailable'] %%}–"
-            "{%% elif u in ['EUR', 'EUR/h', '€', '€/u'] %%}€ {{ ('%%.2f' %% (v | float(0))) | replace('.', ',') }}{{ '/u' if u in ['EUR/h', '€/u'] else '' }}"
-            "{%% else %%}{{ v | replace('.', ',') }} {{ u | replace('/h', '/u') }}{%% endif %%}") % {"e": entity}
+            "{%% elif u in ['EUR', 'EUR/h', '€', '€/u'] %%}{{ ('%%.2f' %% (v | float(0))) | replace('.', ',') }}€{{ '/u' if u in ['EUR/h', '€/u'] else '' }}"
+            "{%% elif v | is_number %%}{{ ('%%.2f' %% (v | float)) | replace('.', ',') }} {{ u | replace('/h', '/u') }}"
+            "{%% else %%}{{ v }} {{ u }}{%% endif %%}") % {"e": entity}
+
+
+def now_today(values, horizontal=False):
+    """Use and costs now and today (C25), as the user asked:
+
+        **Nu**          **Vandaag**
+        0,17 kW         5,95 kWh
+        0,05€/u         1,61€
+
+    'values' are (entity_id, name) with the names Nu, Vandaag, Kosten nu, Kosten vandaag."""
+    by = {n: e for e, n in values if e}
+    blocks = []
+    for label, use, cost in (("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag")):
+        lines = [value(by[k]) for k in (use, cost) if k in by]
+        if lines:
+            blocks.append(f"**{label}**<br>" + "<br>".join(lines))
+    if not blocks:
+        return None
+    if horizontal:   # on the overviews: Nu and Vandaag side by side
+        return {"type": "horizontal-stack",
+                "cards": [{"type": "markdown", "content": b} for b in blocks]}
+    return {"type": "markdown", "content": "\n\n".join(blocks)}
 
 
 def write_start(ws, dashboards):
@@ -295,7 +308,7 @@ def write_start(ws, dashboards):
         go = {"action": "navigate", "navigation_path": f"/{path}"}
         buttons.append({"type": "vertical-stack", "cards": [
             {"type": "button", "name": title, "icon": icon, "show_state": False, "tap_action": go},
-            *[c for c in [glance(values, go)] if c]]})
+            *[c for c in [now_today(values)] if c]]})
     config = {"title": name, "views": [
         {"title": name, "path": "thuis", "icon": "mdi:home",
          "cards": [heading(name),
