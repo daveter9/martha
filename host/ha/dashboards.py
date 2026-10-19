@@ -49,8 +49,9 @@ HEADINGS = {
 HIDDEN_PANELS = ["home", "energy", "logbook", "history", "media-browser"]
 
 
-def heading(title, subtitle):
-    return {"type": "markdown", "text_only": True, "content": f"# {title}\n{subtitle}",
+def heading(title, subtitle=""):
+    content = f"# {title}\n{subtitle}" if subtitle else f"# {title}"
+    return {"type": "markdown", "text_only": True, "content": content,
             "grid_options": {"columns": "full"}}
 
 
@@ -124,10 +125,12 @@ def collect(ws, token):
         rows = []
     heat = setup_heat.heat_entities(ws, wait=0) if rows else {}
 
+    p1_ids = {}
     entry = setup_p1.dsmr_entry(token)
     if entry:
+        p1_ids = setup_p1.by_key(ws, entry)
         # The meter pages show the costs the other parts calculate, when they are installed.
-        p1 = setup_p1.views(setup_p1.by_key(ws, entry),
+        p1 = setup_p1.views(p1_ids,
                             electricity_costs=[(solar.get("solar_total_cmp_fixed"), "Stroomkosten (netto)")],
                             gas_costs=[(heat.get("heat_total_cv"), "Gaskosten (met vaste kosten)")])
         out["electricity"] += p1["electricity"]
@@ -138,11 +141,18 @@ def collect(ws, token):
         h = setup_heat.views(heat, rows)
         out["heating"] += h["heating"]
         out["dhw"] += h["dhw"]
-    return out
+    # Start screen: use now and today under each button (heat_home in heat.sql).
+    home = {"electricity": [(p1_ids.get("current_electricity_usage"), "Nu"),
+                            (heat.get("heat_home_elec_today"), "Vandaag")],
+            "heating": [(heat.get("heat_home_space_now"), "Nu"),
+                        (heat.get("heat_home_space_today"), "Vandaag")],
+            "dhw": [(heat.get("heat_home_dhw_now"), "Nu"),
+                    (heat.get("heat_home_dhw_today"), "Vandaag")]}
+    return out, home
 
 
 def write(ws, token):
-    views = collect(ws, token)
+    views, home = collect(ws, token)
     existing = {d["url_path"]: d for d in ws.call("lovelace/dashboards/list")}
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
@@ -163,27 +173,31 @@ def write(ws, token):
         if path in existing:
             ws.call("lovelace/dashboards/delete", dashboard_id=existing[path]["id"])
             m.log(f"removed old dashboard /{path}")
-    shown = [DASHBOARDS[k] for k in DASHBOARDS if views[k]]
-    write_sidebar(ws, [path for path, _, _ in shown])
-    write_start(ws, shown)   # last: it may restart HA
+    shown = [k for k in DASHBOARDS if views[k]]
+    write_sidebar(ws, [DASHBOARDS[k][0] for k in shown])
+    write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown])   # last: it may restart HA
 
 
 def write_start(ws, dashboards):
-    """The start screen: only a button per dashboard (C25), as the default panel for everyone
-    instead of HA's generated home screen (weather, devices).
+    """The start screen (C25): per dashboard a button, with its use now and today under it,
+    as the default panel for everyone instead of HA's generated home screen (weather,
+    devices). 'dashboards' are (url_path, title, icon, [(entity_id, name), ...]).
 
     Since HA 2026 the frontend only uses the default panel 'lovelace' when it is a dashboard
     entry with that url_path; otherwise it falls back to the home screen. HA turns the legacy
     default config into such an entry when it starts, so the first time this saves the legacy
     config and restarts HA; after that it writes to the entry. Call it last: a restart closes
     the websocket."""
-    buttons = [{"type": "button", "name": title, "icon": icon, "show_state": False,
-                "tap_action": {"action": "navigate", "navigation_path": f"/{path}"}}
-               for path, title, icon in dashboards]
+    buttons = []
+    for path, title, icon, values in dashboards:
+        go = {"action": "navigate", "navigation_path": f"/{path}"}
+        buttons.append({"type": "vertical-stack", "cards": [
+            {"type": "button", "name": title, "icon": icon, "show_state": False, "tap_action": go},
+            *({"type": "entity", "entity": e, "name": n, "tap_action": go} for e, n in values if e)]})
     config = {"title": "Thuis", "views": [
         {"title": "Thuis", "path": "thuis", "icon": "mdi:home",
-         "cards": [heading("Thuis", "Kies een onderwerp"),
-                   {"type": "grid", "columns": 3, "square": True, "cards": buttons}]}]}
+         "cards": [heading("Thuis"),
+                   {"type": "grid", "columns": 3, "square": False, "cards": buttons}]}]}
     core = ws.call("frontend/get_system_data", key="core").get("value") or {}
     if core.get("default_panel") != "lovelace":
         ws.call("frontend/set_system_data", key="core", value={**core, "default_panel": "lovelace"})

@@ -213,6 +213,43 @@ sql:
     # The state is the number of days in the table; the table is an attribute.
     query: SELECT (SELECT count(*) FROM (SELECT 1 FROM heat_1d ORDER BY day DESC LIMIT 14) d) AS v, heat_split_days(14) AS tabel;
 
+  # --- Start screen: use now and today (heat_home) ----------------------------------------
+  - name: Stroomverbruik vandaag
+    unique_id: heat_home_elec_today
+    icon: mdi:flash
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(elec_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Gas verwarming nu
+    unique_id: heat_home_space_now
+    icon: mdi:radiator
+    unit_of_measurement: m³/h
+    column: v
+    query: SELECT round(gas_space_now::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Gas tapwater nu
+    unique_id: heat_home_dhw_now
+    icon: mdi:shower-head
+    unit_of_measurement: m³/h
+    column: v
+    query: SELECT round(gas_dhw_now::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Gas verwarming vandaag
+    unique_id: heat_home_space_today
+    icon: mdi:radiator
+    unit_of_measurement: m³
+    column: v
+    query: SELECT round(gas_space_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Gas tapwater vandaag
+    unique_id: heat_home_dhw_today
+    icon: mdi:shower-head
+    unit_of_measurement: m³
+    column: v
+    query: SELECT round(gas_dhw_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
   # --- Results (heat_results, hourly) ----------------------------------------------------
   - name: Warmtepomp besparing per jaar
     unique_id: heat_forecast

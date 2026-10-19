@@ -820,6 +820,34 @@ LANGUAGE sql STABLE AS $$
     FROM heat_1d
 $$;
 
+-- The start screen (C25): use now and today per dashboard. Electricity today = the import
+-- counters now minus at local midnight (raw LTSS, so up to date). Gas now = the average of the
+-- last 15 minutes in m³/h: the meter reports every 5 minutes and heat_job runs every 5
+-- minutes, so a shorter window would mostly show 0. Gas today from heat_1d.
+CREATE OR REPLACE FUNCTION heat_home()
+RETURNS TABLE (elec_today double precision, gas_space_now double precision,
+               gas_dhw_now double precision, gas_space_today double precision,
+               gas_dhw_today double precision)
+LANGUAGE sql STABLE AS $$
+    WITH d AS (
+        SELECT (now() AT TIME ZONE 'Europe/Amsterdam')::date AS day,
+               date_trunc('day', now() AT TIME ZONE 'Europe/Amsterdam') AT TIME ZONE 'Europe/Amsterdam' AS t0
+    )
+    SELECT
+        (SELECT sum((SELECT ltss_numeric(l.state) FROM ltss l
+                     WHERE l.entity_id = e AND ltss_numeric(l.state) IS NOT NULL
+                     ORDER BY l.time DESC LIMIT 1)
+                  - (SELECT ltss_numeric(l.state) FROM ltss l
+                     WHERE l.entity_id = e AND l.time < d.t0 AND ltss_numeric(l.state) IS NOT NULL
+                     ORDER BY l.time DESC LIMIT 1))
+         FROM unnest(ARRAY[solar_entity_id('import_low'), solar_entity_id('import_normal')]) e),
+        (SELECT coalesce(sum(gas_space), 0) * 4 FROM heat_1m WHERE minute >= now() - INTERVAL '15 minutes'),
+        (SELECT coalesce(sum(gas_dhw), 0) * 4 FROM heat_1m WHERE minute >= now() - INTERVAL '15 minutes'),
+        coalesce((SELECT gas_space FROM heat_1d WHERE heat_1d.day = d.day), 0),
+        coalesce((SELECT gas_dhw FROM heat_1d WHERE heat_1d.day = d.day), 0)
+    FROM d
+$$;
+
 -- A number with two decimals and a decimal comma.
 CREATE OR REPLACE FUNCTION heat_nl(p double precision) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
