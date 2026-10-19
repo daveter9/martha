@@ -26,6 +26,89 @@ DASHBOARDS = {
 }
 OLD = ("p1-meter", "zonne-energie", "warmte-pomp")
 
+# Every page starts with a title that says what is on it (C25), by dashboard and view path.
+HEADINGS = {
+    ("electricity", "meter"): ("Stroommeter", "Verbruik en teruglevering nu, spanning, stroom en de historie"),
+    ("electricity", "zonnepanelen"): ("Zonnepanelen", "Wat de panelen opleveren: besparing, teruglevering en kosten"),
+    ("electricity", "omvormer"): ("Omvormer", "Opwek, strings en het net volgens de Growatt"),
+    ("electricity", "contract"): ("Stroomcontract", "Je vaste contract tegen een dynamisch contract"),
+    ("electricity", "investering"): ("Investering zonnepanelen", "Terugverdienen: tot nu toe en de prognose"),
+    ("electricity", "overschot"): ("Zonne-overschot", "Wat een batterij zou opleveren, en het overschot per uur"),
+    ("electricity", "instellingen"): ("Instellingen stroom", "Stroomtarieven en de aannames van de zonnepanelen"),
+    ("heating", "gas"): ("Gasmeter", "Gasverbruik per 5 minuten, per dag en per maand"),
+    ("heating", "kosten"): ("Kosten verwarmen", "CV-ketel tegen warmtepomp, met contract- en marktprijs"),
+    ("heating", "berekening"): ("Berekening", "Zo wordt één minuut uitgerekend, met de formules"),
+    ("heating", "prognose"): ("Prognose per jaar", "Kosten met een gemiddeld jaar, en het warmteverlies van het huis"),
+    ("heating", "aannames"): ("Aannames", "Waar de berekening op rust en wat je kunt verfijnen"),
+    ("heating", "instellingen"): ("Instellingen verwarming", "Prijzen, huis en ketel, en de warmtepomp"),
+    ("dhw", "tapwater"): ("Tapwater", "Gas en kosten voor warm water: CV-ketel tegen warmtepomp"),
+}
+# Built-in panels hidden from the sidebar (C24). They stay loaded: the dashboards need history
+# (history graphs) and energy (period selection); logbook and media come with them.
+HIDDEN_PANELS = ["home", "energy", "logbook", "history", "media-browser"]
+
+
+def heading(title, subtitle):
+    return {"type": "markdown", "text_only": True, "content": f"# {title}\n{subtitle}",
+            "grid_options": {"columns": "full"}}
+
+
+# The fixed layout of a page with use and costs over time (C25): today first, then ever longer
+# ranges as you scroll down; details last. label, calendar period, graph period, days shown.
+RANGES = [("Vandaag", "day", "hour", 1, "per uur"),
+          ("Deze week", "week", "day", 7, "per dag"),
+          ("Deze maand", "month", "day", 30, "per dag"),
+          ("Dit jaar", "year", "month", 365, "per maand")]
+
+
+def page(title, path, icon, usage=(), costs=(), today=(), details=()):
+    """A sections view: Vandaag, Deze week, Deze maand, Dit jaar, Details. 'usage' and 'costs'
+    are (entity_id, name) pairs of sensors with long-term statistics (state_class total or
+    total_increasing); each range shows their change in that calendar period and a graph.
+    'today' are extra cards at the top (what happens now), 'details' extra cards at the end.
+    Returns None when there is nothing to show."""
+    usage = [(e, n) for e, n in usage if e]
+    costs = [(e, n) for e, n in costs if e]
+    if not (usage or costs or today):
+        return None
+
+    def stat(entity, name, calendar):
+        card = {"type": "statistic", "entity": entity, "stat_type": "change",
+                "period": {"calendar": {"period": calendar}}}
+        if name:
+            card["name"] = name
+        return card
+
+    def graph(name, pairs, period, days):
+        return {"type": "statistics-graph", "title": name, "chart_type": "bar",
+                "entities": [{"entity": e, "name": n} if n else e for e, n in pairs],
+                "stat_types": ["change"], "period": period, "days_to_show": days,
+                "grid_options": {"columns": "full"}}
+
+    sections = []
+    for i, (label, calendar, period, days, per) in enumerate(RANGES):
+        cards = [{"type": "heading", "heading": label}]
+        if i == 0:
+            cards += list(today)
+        cards += [stat(e, n, calendar) for e, n in usage + costs]
+        if usage:
+            cards.append(graph(f"Gebruik {per}", usage, period, days))
+        if costs:
+            cards.append(graph(f"Kosten {per}", costs, period, days))
+        sections.append({"type": "grid", "cards": cards})
+    kept = []
+    for c in details:
+        if c and "entities" in c:
+            c = {**c, "entities": [x for x in c["entities"]
+                                   if x and (not isinstance(x, dict) or x.get("entity"))]}
+        if c and (c.get("entities") or c.get("type") == "markdown" or c.get("entity")):
+            kept.append(c)   # a card without entities is an error in the frontend
+    details = kept
+    if details:
+        sections.append({"type": "grid", "cards": [{"type": "heading", "heading": "Details"}, *details]})
+    return {"type": "sections", "max_columns": 4, "title": title, "path": path, "icon": icon,
+            "sections": sections}
+
 
 def collect(ws, token):
     """The views per domain, from each part that is installed."""
@@ -33,23 +116,27 @@ def collect(ws, token):
     import setup_p1
     import setup_solar
     out = {k: [] for k in DASHBOARDS}
-
-    entry = setup_p1.dsmr_entry(token)
-    if entry:
-        p1 = setup_p1.views(setup_p1.by_key(ws, entry))
-        out["electricity"] += p1["electricity"]
-        out["heating"] += p1["gas"]
-
-    out["electricity"] += setup_solar.views(setup_solar.sql_entities(ws))
-
+    solar = setup_solar.sql_entities(ws)
     try:
         rows = setup_heat.params()
     except m.Error:   # heat.sql not applied
         rows = []
+    heat = setup_heat.heat_entities(ws, wait=0) if rows else {}
+
+    entry = setup_p1.dsmr_entry(token)
+    if entry:
+        # The meter pages show the costs the other parts calculate, when they are installed.
+        p1 = setup_p1.views(setup_p1.by_key(ws, entry),
+                            electricity_costs=[(solar.get("solar_total_cmp_fixed"), "Stroomkosten (netto)")],
+                            gas_costs=[(heat.get("heat_total_cv"), "Gaskosten (met vaste kosten)")])
+        out["electricity"] += p1["electricity"]
+        out["heating"] += p1["gas"]
+
+    out["electricity"] += setup_solar.views(solar)
     if rows:
-        heat = setup_heat.views(setup_heat.heat_entities(ws, wait=0), rows)
-        out["heating"] += heat["heating"]
-        out["dhw"] += heat["dhw"]
+        h = setup_heat.views(heat, rows)
+        out["heating"] += h["heating"]
+        out["dhw"] += h["dhw"]
     return out
 
 
@@ -59,6 +146,12 @@ def write(ws, token):
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
+        for v in views[key]:
+            top = heading(*HEADINGS.get((key, v["path"]), (v["title"], "")))
+            if v.get("type") == "sections":
+                v["sections"].insert(0, {"type": "grid", "column_span": 4, "cards": [top]})
+            else:
+                v["cards"].insert(0, top)
         if path not in existing:
             ws.call("lovelace/dashboards/create", url_path=path, title=title, icon=icon,
                     show_in_sidebar=True, require_admin=False, mode="storage")
@@ -69,6 +162,36 @@ def write(ws, token):
         if path in existing:
             ws.call("lovelace/dashboards/delete", dashboard_id=existing[path]["id"])
             m.log(f"removed old dashboard /{path}")
+    shown = [DASHBOARDS[k] for k in DASHBOARDS if views[k]]
+    write_start(ws, shown)
+    write_sidebar(ws, [path for path, _, _ in shown])
+
+
+def write_start(ws, dashboards):
+    """The start screen: only a button per dashboard (C25). It is the default dashboard
+    (Overzicht, /lovelace), made the default panel for everyone instead of HA's generated
+    home screen (weather, devices)."""
+    buttons = [{"type": "button", "name": title, "icon": icon, "show_state": False,
+                "tap_action": {"action": "navigate", "navigation_path": f"/{path}"}}
+               for path, title, icon in dashboards]
+    ws.call("lovelace/config/save", config={"title": "Thuis", "views": [
+        {"title": "Thuis", "path": "thuis", "icon": "mdi:home",
+         "cards": [heading("Thuis", "Kies een onderwerp"),
+                   {"type": "grid", "columns": 3, "square": True, "cards": buttons}]}]})
+    core = ws.call("frontend/get_system_data", key="core").get("value") or {}
+    if core.get("default_panel") != "lovelace":
+        ws.call("frontend/set_system_data", key="core", value={**core, "default_panel": "lovelace"})
+        m.log("default panel: the start screen (/lovelace) instead of HA's home screen")
+    m.log(f"start screen: {len(buttons)} buttons")
+
+
+def write_sidebar(ws, paths):
+    """Sidebar of the token's user (the owner): the start screen and the dashboards, without
+    HA's built-in panels. Sidebar settings are per user in HA; another user sets them under
+    Profiel or by long-pressing the sidebar."""
+    ws.call("frontend/set_user_data", key="sidebar",
+            value={"panelOrder": ["lovelace", *paths], "hiddenPanels": HIDDEN_PANELS})
+    m.log("sidebar: " + ", ".join(["lovelace", *paths]) + "; hidden: " + ", ".join(HIDDEN_PANELS))
 
 
 def main():

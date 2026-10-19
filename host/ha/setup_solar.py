@@ -310,43 +310,33 @@ def views(ids):
         return {"type": "entities", "title": title,
                 "entities": [f"input_number.solar_{k}" for k in keys]}
 
-    money = ["solar_total_saving_self", "solar_total_revenue_export", "solar_total_cost_export",
-             "solar_total_benefit"]
-    selected = {"type": "statistics-graph", "title": "Opbrengst in de gekozen periode",
-                "chart_type": "bar", "entities": [e(u) for u in money if e(u)],
-                "stat_types": ["change"], "energy_date_selection": True}
-
-    overview = [
-        {"type": "energy-date-selection"},
-        {"type": "grid", "columns": 2, "square": False, "cards": [
-            stat("solar_total_benefit", "Netto opbrengst"),
-            stat("solar_total_saving_self", "Besparing eigen gebruik"),
-            stat("solar_total_revenue_export", "Opbrengst teruglevering"),
-            stat("solar_total_cost_export", "Terugleverkosten"),
-            stat("solar_total_self_use", "Eigen gebruik"),
-            stat("solar_total_export_negative", "Teruglevering bij negatieve prijs"),
-        ]},
-        selected,
-        {"type": "entities", "title": "Afgelopen 365 dagen",
-         "entities": [e("solar_self_use_pct"), e("solar_self_sufficiency_pct")]},
-        graph("Opbrengst per dag (30 dagen)", money, "day", 30),
-        graph("Opbrengst per maand (1 jaar)", money, "month", 365),
-        graph("Opbrengst per jaar", money, "year", 3650),
-    ]
-    contract = [
-        {"type": "energy-date-selection"},
-        {"type": "grid", "columns": 2, "square": False, "cards": [
-            stat("solar_total_cmp_fixed", "Huidig contract"),
-            stat("solar_total_cmp_dynamic", "Dynamisch contract"),
-        ]},
-        {"type": "markdown", "content":
-            "Netto stroomkosten (inkoop min teruglevering plus terugleverkosten) over de minuten "
-            "met een day-ahead-prijs. Vaste kosten per maand tellen niet mee. Vul de opslagen en "
-            "de energiebelasting van het dynamische contract in onder *Instellingen*."},
-        graph("Per maand (1 jaar)", ["solar_total_cmp_fixed", "solar_total_cmp_dynamic"], "month", 365),
-        {"type": "entities", "title": "Day-ahead-prijzen",
-         "entities": [e("solar_day_ahead_prices"), e("solar_day_ahead_missing")]},
-    ]
+    overview = dashboards.page(
+        "Zonnepanelen", "zonnepanelen", "mdi:solar-power",
+        usage=[(e("solar_growatt_energy_total"), "Opwek"), (e("solar_total_self_use"), "Eigen gebruik"),
+               (e("solar_total_export_negative"), "Teruglevering bij negatieve prijs")],
+        costs=[(e("solar_total_benefit"), "Netto opbrengst"),
+               (e("solar_total_saving_self"), "Besparing eigen gebruik"),
+               (e("solar_total_revenue_export"), "Opbrengst teruglevering"),
+               (e("solar_total_cost_export"), "Terugleverkosten")],
+        details=[
+            {"type": "entities", "title": "Afgelopen 365 dagen",
+             "entities": [e("solar_self_use_pct"), e("solar_self_sufficiency_pct")]},
+            dict(graph("Opbrengst per jaar", ["solar_total_benefit", "solar_total_saving_self",
+                                              "solar_total_revenue_export", "solar_total_cost_export"],
+                       "year", 3650), grid_options={"columns": "full"}),
+        ])
+    contract = dashboards.page(
+        "Contract", "contract", "mdi:file-compare",
+        costs=[(e("solar_total_cmp_fixed"), "Huidig contract"),
+               (e("solar_total_cmp_dynamic"), "Dynamisch contract")],
+        details=[
+            {"type": "markdown", "content":
+                "Netto stroomkosten (inkoop min teruglevering plus terugleverkosten) over de minuten "
+                "met een day-ahead-prijs. Vaste kosten per maand tellen niet mee. Vul de opslagen en "
+                "de energiebelasting van het dynamische contract in onder *Instellingen*."},
+            {"type": "entities", "title": "Day-ahead-prijzen",
+             "entities": [e("solar_day_ahead_prices"), e("solar_day_ahead_missing")]},
+        ])
     investment = [
         {"type": "entities", "title": "Tot nu toe", "entities": [
             e("solar_payback_ratio"), e("solar_break_even"),
@@ -419,16 +409,15 @@ def views(ids):
             out.append(c)
         return out
 
-    views = [("Zonnepanelen", "zonnepanelen", "mdi:solar-power", overview),
-             ("Contract", "contract", "mdi:file-compare", contract),
-             ("Investering", "investering", "mdi:finance", investment),
+    views = [("Investering", "investering", "mdi:finance", investment),
              ("Overschot", "overschot", "mdi:sun-clock", surplus),
              ("Instellingen", "instellingen", "mdi:cog", settings)]
     if e("solar_growatt_power"):
-        views.insert(1, ("Omvormer", "omvormer", "mdi:solar-panel", inverter))
+        views.insert(0, ("Omvormer", "omvormer", "mdi:solar-panel", inverter))
     if not ids:
         return []
-    return [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in views]
+    return ([v for v in (overview, contract) if v]
+            + [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in views])
 
 
 def main():

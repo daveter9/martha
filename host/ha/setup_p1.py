@@ -122,64 +122,82 @@ def by_key(ws, entry):
     return found
 
 
-def views(ids):
-    """The P1 views: electricity for the dashboard Elektriciteit, gas for Verwarming. Only
-    cards for sensors this meter actually has."""
+# Short names on the dashboards (DSMR names every sensor "Electricity Meter ...").
+NAMES = {
+    "current_electricity_usage": "Verbruik nu",
+    "current_electricity_delivery": "Teruglevering nu",
+    "electricity_used_tariff_1": "Verbruik dal",
+    "electricity_used_tariff_2": "Verbruik normaal",
+    "electricity_delivered_tariff_1": "Teruglevering dal",
+    "electricity_delivered_tariff_2": "Teruglevering normaal",
+    "electricity_active_tariff": "Tarief nu",
+    "timestamp": "Laatste meting",
+    "gas_meter_reading": "Gas",
+    **{f"instantaneous_voltage_l{n}": f"Spanning L{n}" for n in (1, 2, 3)},
+    **{f"instantaneous_current_l{n}": f"Stroom L{n}" for n in (1, 2, 3)},
+}
+
+
+def views(ids, electricity_costs=(), gas_costs=()):
+    """The P1 pages in the fixed layout (dashboards.page): electricity for the dashboard
+    Elektriciteit, gas for Verwarming. The costs come from the other parts when installed.
+    Only cards for sensors this meter actually has."""
     def pick(*keys):
         return [ids[k] for k in keys if k in ids]
 
-    power = pick("current_electricity_usage", "current_electricity_delivery")
+    def named(*keys):
+        return [(ids[k], NAMES.get(k)) for k in keys if k in ids]
+
+    def tiles(*keys):
+        return [{"type": "tile", "entity": ids[k], "name": NAMES.get(k, k)} for k in keys if k in ids]
+
+    power = named("current_electricity_usage", "current_electricity_delivery")
     phases = pick(*(f"instantaneous_active_power_l{n}_{d}"
                     for n in (1, 2, 3) for d in ("positive", "negative")))
-    voltage = pick("instantaneous_voltage_l1", "instantaneous_voltage_l2", "instantaneous_voltage_l3")
-    current = pick("instantaneous_current_l1", "instantaneous_current_l2", "instantaneous_current_l3")
-    energy = pick("electricity_used_tariff_1", "electricity_used_tariff_2",
-                  "electricity_delivered_tariff_1", "electricity_delivered_tariff_2")
-    gas = pick("gas_meter_reading")
+    voltage = named("instantaneous_voltage_l1", "instantaneous_voltage_l2", "instantaneous_voltage_l3")
+    current = named("instantaneous_current_l1", "instantaneous_current_l2", "instantaneous_current_l3")
+    energy = named("electricity_used_tariff_2", "electricity_used_tariff_1",
+                   "electricity_delivered_tariff_2", "electricity_delivered_tariff_1")
+    gas = named("gas_meter_reading")
     events = pick("short_power_failure_count", "long_power_failure_count",
                   *(f"voltage_{t}_l{n}_count" for t in ("sag", "swell") for n in (1, 2, 3)))
-    status = pick("electricity_active_tariff", "timestamp")
+
+    def ents(pairs):
+        return [{"entity": e, "name": n} if n else e for e, n in pairs]
 
     def history(title, entities, hours=24):
         return {"type": "history-graph", "title": title, "hours_to_show": hours,
-                "entities": entities}
+                "entities": entities, "grid_options": {"columns": "full"}}
 
     def statistics(title, entities, period, days, stat_types, chart_type="line"):
         return {"type": "statistics-graph", "title": title, "entities": entities,
                 "period": period, "days_to_show": days, "stat_types": stat_types,
-                "chart_type": chart_type}
+                "chart_type": chart_type, "grid_options": {"columns": "full"}}
 
-    now = [{"type": "tile", "entity": e} for e in power + voltage + current + status]
-    electricity = [
-        {"type": "grid", "columns": 2, "square": False, "cards": now},
-        history("Vermogen (24 uur)", power),
-        history("Vermogen per fase (24 uur)", phases),
-        history("Spanning (24 uur)", voltage),
-        history("Stroom (24 uur)", current),
-        statistics("Vermogen per uur (7 dagen)", power, "hour", 7, ["mean", "min", "max"]),
-        statistics("Spanning per uur (7 dagen)", voltage, "hour", 7, ["mean", "min", "max"]),
-        statistics("Elektriciteit per dag (30 dagen)", energy, "day", 30, ["change"], "bar"),
-        statistics("Elektriciteit per maand (1 jaar)", energy, "month", 365, ["change"], "bar"),
-        {"type": "entities", "title": "Meterstanden", "entities": energy},
-        {"type": "entities", "title": "Storingen, dips en pieken", "entities": events},
-        history("Storingen, dips en pieken (30 dagen)", events, 24 * 30),
-    ]
-    gas_cards = [
+    meter = dashboards.page(
+        "Meter", "meter", "mdi:meter-electric", usage=energy, costs=electricity_costs,
+        today=[*tiles("current_electricity_usage", "current_electricity_delivery",
+                      "electricity_active_tariff", "timestamp"),
+               history("Vermogen (24 uur)", ents(power))],
+        details=[
+            *tiles("instantaneous_voltage_l1", "instantaneous_current_l1"),
+            history("Vermogen per fase (24 uur)", phases),
+            history("Spanning (24 uur)", ents(voltage)),
+            history("Stroom (24 uur)", ents(current)),
+            statistics("Vermogen per uur (7 dagen)", ents(power), "hour", 7, ["mean", "min", "max"]),
+            statistics("Spanning per uur (7 dagen)", ents(voltage), "hour", 7, ["mean", "min", "max"]),
+            {"type": "entities", "title": "Meterstanden", "entities": ents(energy)},
+            {"type": "entities", "title": "Storingen, dips en pieken", "entities": events},
+            history("Storingen, dips en pieken (30 dagen)", events, 24 * 30),
+        ])
+    gas_page = dashboards.page(
+        "Gas", "gas", "mdi:meter-gas", usage=gas, costs=gas_costs,
         # The meter reports gas every 5 minutes; HA's 5-minute statistics give the use
         # per interval (kept as long as the recorder's purge_keep_days).
-        statistics("Gas per 5 minuten (24 uur)", gas, "5minute", 1, ["change"]),
-        statistics("Gas per dag (30 dagen)", gas, "day", 30, ["change"], "bar"),
-        statistics("Gas per maand (1 jaar)", gas, "month", 365, ["change"], "bar"),
-        {"type": "entities", "title": "Meterstand", "entities": gas},
-    ]
-
-    def view(title, path, icon, cards):
-        # A card without entities is an error in the frontend.
-        cards = [c for c in cards if c.get("entities") or c.get("cards")]
-        return [{"title": title, "path": path, "icon": icon, "cards": cards}] if cards else []
-
-    return {"electricity": view("Meter", "meter", "mdi:meter-electric", electricity),
-            "gas": view("Gas", "gas", "mdi:meter-gas", gas_cards)}
+        today=[statistics("Gas per 5 minuten (24 uur)", ents(gas), "5minute", 1, ["change"])] if gas else [],
+        details=[{"type": "entities", "title": "Meterstand", "entities": ents(gas)}])
+    return {"electricity": [meter] if meter and energy else [],
+            "gas": [gas_page] if gas_page and gas else []}
 
 
 def main():
