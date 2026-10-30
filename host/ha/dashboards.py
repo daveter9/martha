@@ -346,17 +346,17 @@ BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Dag", "Vandaag", "Kosten vandaag"),
 
 
 # Overviews that show the use as a table, with the unit labels of the use and the costs row.
-TABLES = {"electricity": ("kW / kWh", "€/u / €")}
+TABLES = {"electricity": ("kWh", "€")}
 
 
 def now_table(values, use_unit, cost_unit):
-    """The use and costs per period as one table, the units named once per row (asked by
-    the user for Elektriciteit):
+    """The use and costs per period as one table, the units named once per row and how long
+    ago the measurement behind 'Nu' is in the top-left cell (asked by the user for
+    Elektriciteit):
 
-                    Nu    Dag   Week   Maand
-        kW / kWh  0,17   2,68  30,87  125,23
-        €/u / €   0,05   0,74   8,33   33,81
-        12 s geleden
+        12 s geleden    Nu    Dag   Week   Maand
+        kWh           0,17   2,68  30,87  125,23
+        €             0,05   0,74   8,33   33,81
     """
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
@@ -366,11 +366,10 @@ def now_table(values, use_unit, cost_unit):
 
     def row(unit, i):
         return "| " + " | ".join([unit] + [number(by[c[i]]) if c[i] in by else "–" for c in cols]) + " |"
-    lines = ["| | " + " | ".join(c[0] for c in cols) + " |",
+    corner = f"<small>{ago(*age)}</small>" if age else ""
+    lines = [f"| {corner} | " + " | ".join(c[0] for c in cols) + " |",
              "|---|" + "---:|" * len(cols),
              row(use_unit, 1), row(cost_unit, 2)]
-    if age:
-        lines += ["", f"<small>{ago(*age)}</small>"]
     return {"type": "markdown", "content": "\n".join(lines)}
 
 
