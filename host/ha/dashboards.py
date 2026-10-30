@@ -172,26 +172,29 @@ def collect(ws, token):
                     (heat.get("heat_home_dhw_cost_week"), "Kosten deze week"),
                     (heat.get("heat_home_dhw_month"), "Deze maand"),
                     (heat.get("heat_home_dhw_cost_month"), "Kosten deze maand")]}
-    return out, home, (p1_ids, solar)
+    return out, home, (p1_ids, solar, heat)
 
 
 def write(ws, token):
-    views, home, (p1_ids, solar_ids) = collect(ws, token)
+    views, home, (p1_ids, solar_ids, heat_ids) = collect(ws, token)
     write_energy(ws, p1_ids, solar_ids)
     existing = {d["url_path"]: d for d in ws.call("lovelace/dashboards/list")}
     # Under the blocks of Elektriciteit: where the power comes from and goes to, now. Our own
     # card: HA's power-sankey always shows "untracked consumption" (C25).
     extra = {}
-    if "current_electricity_usage" in p1_ids and write_resource(ws):
+    if "current_electricity_usage" in p1_ids and write_resource(ws, "martha-power-flow.js"):
         card = {"type": "custom:martha-power-flow", "grid_import": p1_ids["current_electricity_usage"]}
         if p1_ids.get("current_electricity_delivery"):
             card["grid_export"] = p1_ids["current_electricity_delivery"]
         if solar_ids.get("solar_growatt_power"):
             card["solar"] = solar_ids["solar_growatt_power"]
         extra["electricity"] = [card]
-    # Under the table of Verwarming: the room temperature and the setpoint of the thermostat.
+    # Under the table of Verwarming: room temperature and setpoint of the thermostat, with gas
+    # for heating now on a second axis. Our own card: HA's history-graph has one axis.
     import setup_thermostat
-    extra["heating"] = setup_thermostat.extra(setup_thermostat.climate_entity(ws, wait=0))
+    climate = setup_thermostat.climate_entity(ws, wait=0)
+    if climate and write_resource(ws, "martha-thermostat-graph.js"):
+        extra["heating"] = setup_thermostat.extra(climate, heat_ids.get("heat_home_space_now"))
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
@@ -217,20 +220,20 @@ def write(ws, token):
     write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown])   # last: it may restart HA
 
 
-CARD = "/www/martha/martha-power-flow.js"   # under m.CONFIG, installed by install.sh
+CARDS = m.CONFIG + "/www/martha/"   # our own cards, installed by install.sh
 
 
-def write_resource(ws):
-    """Our own card as a Lovelace resource, with a hash of the file in the URL so browsers
-    load a new version. Returns False when install.sh has not installed the card."""
+def write_resource(ws, name):
+    """Our own card 'name' as a Lovelace resource, with a hash of the file in the URL so
+    browsers load a new version. Returns False when install.sh has not installed the card."""
     try:
-        with open(m.CONFIG + CARD, "rb") as f:
+        with open(CARDS + name, "rb") as f:
             digest = hashlib.sha1(f.read()).hexdigest()[:10]
     except OSError:
         return False
-    url = f"/local/martha/martha-power-flow.js?v={digest}"
+    url = f"/local/martha/{name}?v={digest}"
     resources = ws.call("lovelace/resources")
-    mine = [r for r in resources if r["url"].split("?")[0] == "/local/martha/martha-power-flow.js"]
+    mine = [r for r in resources if r["url"].split("?")[0] == f"/local/martha/{name}"]
     if any(r["url"] == url for r in mine):
         return True
     for r in mine:

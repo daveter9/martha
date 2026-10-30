@@ -15,8 +15,9 @@ Idempotent; each run:
   1. makes a backup (martha-ha backup before-thermostat);
   2. pairs the thermostat if there is no HomeKit Device entry yet (needs --code then).
      HomeKit Device loads zeroconf (mDNS) to find it (DESIGN.md, C24);
-  3. writes the dashboards per domain (host/ha/dashboards.py): the graph of the room
-     temperature and the setpoint is on the overview of Verwarming.
+  3. writes the dashboards per domain (host/ha/dashboards.py): one graph with the room
+     temperature, the setpoint and gas for heating now (second axis) is on the overview of
+     Verwarming.
 """
 
 import argparse
@@ -94,13 +95,16 @@ def climate_entity(ws, wait=60):
         time.sleep(2)
 
 
-def extra(entity):
+def extra(entity, gas=None):
     """Cards under the table on the overview of Verwarming: the room temperature and the
-    setpoint (with the heating periods shaded), over the last 24 hours."""
+    setpoint (left axis) and gas for heating now (right axis), over the last 24 hours, in our
+    own card host/ha/www/martha-thermostat-graph.js."""
     if not entity:
         return []
-    return [{"type": "history-graph", "title": "Thermostaat: temperatuur en ingesteld",
-             "hours_to_show": 24, "entities": [{"entity": entity, "name": "Thermostaat"}]}]
+    card = {"type": "custom:martha-thermostat-graph", "climate": entity, "hours": 24}
+    if gas:
+        card["gas"] = gas
+    return [card]
 
 
 def main():

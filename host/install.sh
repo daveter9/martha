@@ -277,10 +277,10 @@ else
     printf 'martha_db_url: "%s"\n' "$db_url" >>"$SECRETS"
 fi
 
-# Our own dashboard card (power flow now, C25), served as /local/martha/; dashboards.py
-# registers it as a Lovelace resource.
+# Our own dashboard cards (power flow, thermostat graph; C25), served as /local/martha/; dashboards.py
+# registers them as Lovelace resources.
 install -d -m 0755 "$CONF/www/martha"
-install -m 0644 "$ROOT/host/ha/www/martha-power-flow.js" "$CONF/www/martha/martha-power-flow.js"
+install -m 0644 "$ROOT/host/ha/www/martha-power-flow.js" "$ROOT/host/ha/www/martha-thermostat-graph.js" "$CONF/www/martha/"
 
 if [ -z "$HOST_ONLY" ]; then
     # LTSS from the bundle (not HACS, which needs internet); always the bundled version.
