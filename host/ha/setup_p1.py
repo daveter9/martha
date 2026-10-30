@@ -139,28 +139,18 @@ NAMES = {
 
 
 def views(ids, electricity_costs=(), gas_costs=()):
-    """The P1 pages in the fixed layout (dashboards.page): electricity for the dashboard
-    Elektriciteit, gas for Verwarming. The costs come from the other parts when installed.
+    """The P1 pages: Gebruik woning for the dashboard Elektriciteit, Gas (in the fixed layout
+    of dashboards.page) for Verwarming. The costs come from the other parts when installed.
     Only cards for sensors this meter actually has."""
-    def pick(*keys):
-        return [ids[k] for k in keys if k in ids]
-
     def named(*keys):
         return [(ids[k], NAMES.get(k)) for k in keys if k in ids]
 
-    def tiles(*keys):
-        return [{"type": "tile", "entity": ids[k], "name": NAMES.get(k, k)} for k in keys if k in ids]
-
     power = named("current_electricity_usage", "current_electricity_delivery")
-    phases = pick(*(f"instantaneous_active_power_l{n}_{d}"
-                    for n in (1, 2, 3) for d in ("positive", "negative")))
-    voltage = named("instantaneous_voltage_l1", "instantaneous_voltage_l2", "instantaneous_voltage_l3")
-    current = named("instantaneous_current_l1", "instantaneous_current_l2", "instantaneous_current_l3")
-    energy = named("electricity_used_tariff_2", "electricity_used_tariff_1",
-                   "electricity_delivered_tariff_2", "electricity_delivered_tariff_1")
+    # Use as one bar per period: low and normal tariff stacked.
+    used = [(ids[k], n) for k, n in (("electricity_used_tariff_1", "Dal"),
+                                     ("electricity_used_tariff_2", "Normaal")) if k in ids]
+    costs = [(e, n) for e, n in electricity_costs if e]
     gas = named("gas_meter_reading")
-    events = pick("short_power_failure_count", "long_power_failure_count",
-                  *(f"voltage_{t}_l{n}_count" for t in ("sag", "swell") for n in (1, 2, 3)))
 
     def ents(pairs):
         return [{"entity": e, "name": n} if n else e for e, n in pairs]
@@ -174,33 +164,28 @@ def views(ids, electricity_costs=(), gas_costs=()):
                 "period": period, "days_to_show": days, "stat_types": stat_types,
                 "chart_type": chart_type, "grid_options": {"columns": "full"}}
 
-    meter = dashboards.page(
-        "Meter", "meter", "mdi:meter-electric", usage=energy, costs=electricity_costs,
-        today=[*tiles("current_electricity_usage", "current_electricity_delivery",
-                      "electricity_active_tariff", "timestamp"),
-               # Where the electricity comes from (grid, solar) and goes to (house, grid), now;
-               # from HA's energy settings, which dashboards.write_energy fills.
-               {"type": "power-sankey", "title": "Stroom nu: waar vandaan, waar heen",
-                "layout": "auto", "grid_options": {"columns": "full"}},
-               history("Vermogen (24 uur)", ents(power))],
-        details=[
-            *tiles("instantaneous_voltage_l1", "instantaneous_current_l1"),
-            history("Vermogen per fase (24 uur)", phases),
-            history("Spanning (24 uur)", ents(voltage)),
-            history("Stroom (24 uur)", ents(current)),
-            statistics("Vermogen per uur (7 dagen)", ents(power), "hour", 7, ["mean", "min", "max"]),
-            statistics("Spanning per uur (7 dagen)", ents(voltage), "hour", 7, ["mean", "min", "max"]),
-            {"type": "entities", "title": "Meterstanden", "entities": ents(energy)},
-            {"type": "entities", "title": "Storingen, dips en pieken", "entities": events},
-            history("Storingen, dips en pieken (30 dagen)", events, 24 * 30),
-        ])
+    # Gebruik woning (user's request, 2026-10-30): only the power over 24 hours, and use and
+    # costs per hour, day, week, month and year. label, period, days shown.
+    sections = [{"type": "grid", "cards": [history("Vermogen (24 uur)", ents(power))]}] if power else []
+    for label, period, days in (("uur", "hour", 1), ("dag", "day", 30), ("week", "week", 26 * 7),
+                                ("maand", "month", 365), ("jaar", "year", 5 * 365)):
+        cards = [{"type": "heading", "heading": f"Per {label}"}]
+        if used:
+            cards.append(statistics(f"Gebruik per {label}", ents(used), period, days,
+                                    ["change"], "bar-stack"))
+        if costs:
+            cards.append(statistics(f"Kosten per {label}", ents(costs), period, days,
+                                    ["change"], "bar"))
+        sections.append({"type": "grid", "cards": cards})
+    home = {"type": "sections", "max_columns": 4, "title": "Gebruik woning", "path": "gebruik-woning",
+            "icon": "mdi:home-lightning-bolt", "sections": sections}
     gas_page = dashboards.page(
         "Gas", "gas", "mdi:meter-gas", usage=gas, costs=gas_costs,
         # The meter reports gas every 5 minutes; HA's 5-minute statistics give the use
         # per interval (kept as long as the recorder's purge_keep_days).
         today=[statistics("Gas per 5 minuten (24 uur)", ents(gas), "5minute", 1, ["change"])] if gas else [],
         details=[{"type": "entities", "title": "Meterstand", "entities": ents(gas)}])
-    return {"electricity": [meter] if meter and energy else [],
+    return {"electricity": [home] if used else [],
             "gas": [gas_page] if gas_page and gas else []}
 
 

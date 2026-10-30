@@ -30,7 +30,7 @@ OLD = ("p1-meter", "zonne-energie", "warmte-pomp")
 
 # Every page starts with a title that says what is on it (C25), by dashboard and view path.
 HEADINGS = {
-    ("electricity", "meter"): ("Stroommeter", "Verbruik en teruglevering nu, spanning, stroom en de historie"),
+    ("electricity", "gebruik-woning"): ("Gebruik woning", "Vermogen, en gebruik en kosten per uur, dag, week, maand en jaar"),
     ("electricity", "zonnepanelen"): ("Zonnepanelen", "Wat de panelen opleveren: besparing, teruglevering en kosten"),
     ("electricity", "omvormer"): ("Omvormer", "Opwek, strings en het net volgens de Growatt"),
     ("electricity", "contract"): ("Stroomcontract", "Je vaste contract tegen een dynamisch contract"),
@@ -238,7 +238,7 @@ def write_resource(ws):
 
 
 def write_energy(ws, p1, solar):
-    """HA's energy settings, which the power sankey on Meter reads (C25): the grid per tariff
+    """HA's energy settings (C25): the grid per tariff
     from the P1 meter, with the power now on the first, and the solar panels once the
     inverter is connected (setup_solar.py --inverter). Written only when it changed."""
     if "electricity_used_tariff_1" not in p1:
