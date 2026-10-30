@@ -5,7 +5,7 @@
 //   type: custom:martha-thermostat-graph
 //   climate: climate.x      (current_temperature and temperature attributes)
 //   gas: sensor.y           (gas for heating now, m³/h; optional)
-//   hours: 2                (range shown; default 24)
+//   hours: 1                (range shown; default 24)
 //
 // History comes from HA's websocket (history/history_during_period, the recorder). New
 // states are added as they arrive; the graph is redrawn every minute, so it moves on with
@@ -159,7 +159,7 @@ class MarthaThermostatGraph extends HTMLElement {
     }
     // Time axis: a line per step and a label per 'label' minutes, by the range shown.
     const h = this._config.hours;
-    const [step, label] = h <= 3 ? [15, 30] : h <= 12 ? [60, 60] : [60, 180];
+    const [step, label] = h <= 1 ? [15, 15] : h <= 3 ? [15, 30] : h <= 12 ? [60, 60] : [60, 180];
     const first = new Date(t0); first.setMinutes(0, 0, 0);
     for (let t = first.getTime(); t <= now; t += step * MINUTE) {
       if (t <= t0) continue;
