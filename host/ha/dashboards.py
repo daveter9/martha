@@ -57,14 +57,14 @@ def heading(title, subtitle=""):
 
 # The fixed layout of a page with use and costs over time (C25): today first, then ever longer
 # ranges as you scroll down; details last. label, calendar period, graph period, days shown.
-RANGES = [("Vandaag", "day", "hour", 1, "per uur"),
+RANGES = [("Deze dag", "day", "hour", 1, "per uur"),
           ("Deze week", "week", "day", 7, "per dag"),
           ("Deze maand", "month", "day", 30, "per dag"),
           ("Dit jaar", "year", "month", 365, "per maand")]
 
 
 def page(title, path, icon, usage=(), costs=(), today=(), details=()):
-    """A sections view: Vandaag, Deze week, Deze maand, Dit jaar, Details. 'usage' and 'costs'
+    """A sections view: Deze dag, Deze week, Deze maand, Dit jaar, Details. 'usage' and 'costs'
     are (entity_id, name) pairs of sensors with long-term statistics (state_class total or
     total_increasing); each range shows their change in that calendar period and a graph.
     'today' are extra cards at the top (what happens now), 'details' extra cards at the end.
@@ -287,7 +287,7 @@ def ago(entity, attribute):
 
 
 # The blocks of now_today(): label, then the names of the use and the costs in 'values'.
-BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag"),
+BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Deze dag", "Vandaag", "Kosten vandaag"),
           ("Deze week", "Deze week", "Kosten deze week"),
           ("Deze maand", "Deze maand", "Kosten deze maand")]
 
@@ -295,9 +295,10 @@ BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag"),
 def now_today(values, horizontal=False, labels=None):
     """Use and costs now and today (C25), as the user asked:
 
-        **Nu**          **Vandaag**     **Deze week**   **Deze maand**
+        **Nu**          **Deze dag**    **Deze week**   **Deze maand**
         0,17 kW         5,95 kWh        41,20 kWh       180,33 kWh
         0,05€/u         1,61€           11,12€          48,69€
+        12 s geleden
 
     'values' are (entity_id, name) with the names of BLOCKS; a block without values is left
     out (week and month are only there for electricity). 'labels' limits the blocks."""
@@ -308,20 +309,17 @@ def now_today(values, horizontal=False, labels=None):
         if labels and label not in labels:
             continue
         lines = [value(by[k]) for k in (use, cost) if k in by]
+        # How long ago the measurement behind 'Nu' is: small, at the bottom of the Nu block.
+        if label == "Nu" and lines and age:
+            lines.append(f"<small>{ago(*age)}</small>")
         if lines:
             blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
     if not blocks:
         return None
-    # How long ago the measurement behind 'Nu' is: small, at the very bottom of the card.
-    footer = f"<small>{ago(*age)}</small>" if age else ""
-    if horizontal:   # on the overviews: the blocks side by side, the age under them
-        stack = {"type": "horizontal-stack",
-                 "cards": [{"type": "markdown", "content": b} for b in blocks]}
-        if not footer:
-            return stack
-        return {"type": "vertical-stack",
-                "cards": [stack, {"type": "markdown", "content": footer}]}
-    return {"type": "markdown", "content": "\n\n".join(blocks + ([footer] if footer else []))}
+    if horizontal:   # on the overviews: the blocks side by side
+        return {"type": "horizontal-stack",
+                "cards": [{"type": "markdown", "content": b} for b in blocks]}
+    return {"type": "markdown", "content": "\n\n".join(blocks)}
 
 
 def write_start(ws, dashboards):
@@ -337,11 +335,11 @@ def write_start(ws, dashboards):
     # The title is HA's location name (Instellingen > Systeem > Algemeen), so the address
     # stays out of this repository.
     name = ws.call("get_config").get("location_name") or "Thuis"
-    # Three columns, one button each: the icon and name, then Nu and Vandaag with use and
+    # Three columns, one button each: the icon and name, then Nu and Deze dag with use and
     # costs. A markdown card, because it can hold all of that and still has a tap action.
     buttons = []
     for path, title, icon, values in dashboards:
-        body = now_today(values, labels=("Nu", "Vandaag"))
+        body = now_today(values, labels=("Nu", "Deze dag"))
         content = (f'<center><ha-icon icon="{icon}"></ha-icon><br><b>{title}</b>'
                    + ("<br><br>" + body["content"].replace("\n\n", "<br><br>") if body else "")
                    + "</center>")
