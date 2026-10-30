@@ -6,7 +6,18 @@
 # but can also be run by hand on an existing Ubuntu 26.04 install, e.g. from a USB stick:
 #   sudo bash /media/<user>/<usb>/martha/host/install.sh
 # Idempotent: re-running with a newer bundle upgrades Docker, Home Assistant and TimescaleDB.
+#
+# With --host-only (used by host/deploy.sh, i.e. deploy.ps1) only host/ is needed: no apt, no
+# images, no LTSS. It installs the host files, applies the database schema and sets up the
+# services; Home Assistant keeps running unless docker-compose.yml changed.
 set -euo pipefail
+
+HOST_ONLY=
+case "${1:-}" in
+"") ;;
+--host-only) HOST_ONLY=1 ;;
+*) echo "usage: install.sh [--host-only]" >&2; exit 2 ;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OFFLINE="$ROOT/offline"
@@ -18,17 +29,25 @@ log() { echo "[martha] $*"; }
 die() { echo "[martha] ERROR: $*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo bash $0)"
-[ -f "$OFFLINE/bundle.env" ] || die "no offline bundle found at $OFFLINE (run 1. download/download.ps1 first)"
-case "$OFFLINE" in *[[:space:]]*) die "bundle path must not contain spaces: $OFFLINE" ;; esac
-# shellcheck source=/dev/null
-. "$OFFLINE/bundle.env"
-. /etc/os-release
-[ "${VERSION_CODENAME:-}" = "${UBUNTU_SUITES%% *}" ] ||
-    die "bundle is for Ubuntu ${UBUNTU_SUITES%% *}, this system is ${VERSION_CODENAME:-unknown}"
+if [ -n "$HOST_ONLY" ]; then
+    # The versions of the last full install (its copy of bundle.env).
+    [ -f "$STATE_DIR/installed" ] || die "--host-only needs a full install first"
+    # shellcheck source=/dev/null
+    . "$STATE_DIR/installed"
+    log "host files only; installed: Home Assistant $HA_VERSION, TimescaleDB $TSDB_VERSION"
+else
+    [ -f "$OFFLINE/bundle.env" ] || die "no offline bundle found at $OFFLINE (run 1. download/download.ps1 first)"
+    case "$OFFLINE" in *[[:space:]]*) die "bundle path must not contain spaces: $OFFLINE" ;; esac
+    # shellcheck source=/dev/null
+    . "$OFFLINE/bundle.env"
+    . /etc/os-release
+    [ "${VERSION_CODENAME:-}" = "${UBUNTU_SUITES%% *}" ] ||
+        die "bundle is for Ubuntu ${UBUNTU_SUITES%% *}, this system is ${VERSION_CODENAME:-unknown}"
 
-: "${TSDB_IMAGE:?bundle has no TimescaleDB image; run 1. download/download.ps1 again}"
+    : "${TSDB_IMAGE:?bundle has no TimescaleDB image; run 1. download/download.ps1 again}"
 
-log "bundle created $BUNDLE_CREATED, Home Assistant $HA_VERSION, TimescaleDB $TSDB_VERSION"
+    log "bundle created $BUNDLE_CREATED, Home Assistant $HA_VERSION, TimescaleDB $TSDB_VERSION"
+fi
 
 # --- 0. Wired network fallback ------------------------------------------------
 # The PC is usually installed without a network. If netplan has no ethernet config
@@ -64,6 +83,9 @@ EOF
 fi
 
 # --- 1. Docker from the local (signed) partial mirror ------------------------
+if [ -n "$HOST_ONLY" ]; then
+    docker info >/dev/null 2>&1 || die "docker is not running"
+else
 # apt runs with its own sources, lists and cache in a temp dir, so the system's
 # apt configuration is left untouched. apt verifies InRelease against the Ubuntu
 # archive keyring and every Packages/.deb hash, exactly as with the online archive.
@@ -114,6 +136,7 @@ if [ -f "$AVAHI_CONF" ]; then
     systemctl enable avahi-daemon.service
     systemctl restart avahi-daemon.service
 fi
+fi   # HOST_ONLY
 
 # --- 2. Container images -----------------------------------------------------------
 load_image() { # <ref> <oci-layout-dir>
@@ -132,21 +155,26 @@ load_image() { # <ref> <oci-layout-dir>
         docker tag "$loaded" "$ref"
     fi
 }
-load_image "$HA_IMAGE" "$OFFLINE/images/homeassistant"
-load_image "$TSDB_IMAGE" "$OFFLINE/images/timescaledb"
+if [ -z "$HOST_ONLY" ]; then
+    load_image "$HA_IMAGE" "$OFFLINE/images/homeassistant"
+    load_image "$TSDB_IMAGE" "$OFFLINE/images/timescaledb"
+fi
 
 # --- 3. Compose project ---------------------------------------------------------
 COMPOSE=(docker compose -f "$HA_DIR/docker-compose.yml")
 CONF="$HA_DIR/config"
 # Home Assistant is stopped while its config, Python packages and database change.
-if [ -f "$HA_DIR/docker-compose.yml" ] && [ -f "$HA_DIR/.env" ]; then
+# Not with --host-only: that changes nothing Home Assistant reads at startup.
+if [ -z "$HOST_ONLY" ] && [ -f "$HA_DIR/docker-compose.yml" ] && [ -f "$HA_DIR/.env" ]; then
     "${COMPOSE[@]}" stop homeassistant >/dev/null 2>&1 || true
 fi
 
-tz="$(timedatectl show -p Timezone --value 2>/dev/null || echo Etc/UTC)"
 install -d -m 0755 "$HA_DIR" "$CONF" "$HA_DIR/postgres"
 install -m 0644 "$ROOT/host/docker-compose.yml" "$HA_DIR/docker-compose.yml"
-printf 'HA_IMAGE=%s\nTSDB_IMAGE=%s\nTZ=%s\n' "$HA_IMAGE" "$TSDB_IMAGE" "$tz" >"$HA_DIR/.env"
+if [ -z "$HOST_ONLY" ]; then
+    tz="$(timedatectl show -p Timezone --value 2>/dev/null || echo Etc/UTC)"
+    printf 'HA_IMAGE=%s\nTSDB_IMAGE=%s\nTZ=%s\n' "$HA_IMAGE" "$TSDB_IMAGE" "$tz" >"$HA_DIR/.env"
+fi
 
 # The database password is generated once and kept in db.env (read by the timescaledb
 # container) and in secrets.yaml (read by Home Assistant).
@@ -210,7 +238,7 @@ energy:
 # History and logbook (history graphs on the dashboards)
 history:
 logbook:
-# Companion app (approvals of martha-gate, notifications) and Grott's webhook
+# Companion app (notifications) and Grott's webhook
 mobile_app:
 webhook:
 
@@ -250,25 +278,27 @@ else
 fi
 
 # Our own dashboard card (power flow now, C25), served as /local/martha/; dashboards.py
-# registers it as a Lovelace resource. Outside the config repo, like martha_storage.yaml.
+# registers it as a Lovelace resource.
 install -d -m 0755 "$CONF/www/martha"
 install -m 0644 "$ROOT/host/ha/www/martha-power-flow.js" "$CONF/www/martha/martha-power-flow.js"
 
-# LTSS from the bundle (not HACS, which needs internet); always the bundled version.
-rm -rf "$CONF/custom_components/ltss"
-install -d -m 0755 "$CONF/custom_components"
-cp -r "$OFFLINE/custom_components/ltss" "$CONF/custom_components/ltss"
+if [ -z "$HOST_ONLY" ]; then
+    # LTSS from the bundle (not HACS, which needs internet); always the bundled version.
+    rm -rf "$CONF/custom_components/ltss"
+    install -d -m 0755 "$CONF/custom_components"
+    cp -r "$OFFLINE/custom_components/ltss" "$CONF/custom_components/ltss"
 
-# LTSS's requirements that the HA image lacks, installed from the bundled wheels with the
-# image's own uv and Python, without network. Rebuilt on every run, so it always matches
-# the Python of the current image. The container gets them via PYTHONPATH.
-log "installing LTSS requirements from wheels ($LTSS_WHEELS)"
-rm -rf "$HA_DIR/pydeps"
-install -d -m 0755 "$HA_DIR/pydeps"
-# shellcheck disable=SC2086
-docker run --rm --network none --entrypoint uv \
-    -v "$OFFLINE/wheels:/wheels:ro" -v "$HA_DIR/pydeps:/pydeps" "$HA_IMAGE" \
-    pip install --quiet --no-index --find-links /wheels --no-deps --target /pydeps $LTSS_WHEELS
+    # LTSS's requirements that the HA image lacks, installed from the bundled wheels with the
+    # image's own uv and Python, without network. Rebuilt on every run, so it always matches
+    # the Python of the current image. The container gets them via PYTHONPATH.
+    log "installing LTSS requirements from wheels ($LTSS_WHEELS)"
+    rm -rf "$HA_DIR/pydeps"
+    install -d -m 0755 "$HA_DIR/pydeps"
+    # shellcheck disable=SC2086
+    docker run --rm --network none --entrypoint uv \
+        -v "$OFFLINE/wheels:/wheels:ro" -v "$HA_DIR/pydeps:/pydeps" "$HA_IMAGE" \
+        pip install --quiet --no-index --find-links /wheels --no-deps --target /pydeps $LTSS_WHEELS
+fi
 
 # PostgreSQL only: retire the SQLite database of the recorder, so it is not used again.
 for f in "$CONF"/home-assistant_v2.db "$CONF"/home-assistant_v2.db-wal "$CONF"/home-assistant_v2.db-shm; do
@@ -301,14 +331,19 @@ done
     log "WARNING: no recorder tables in PostgreSQL yet; check: docker logs homeassistant"
 
 install -d -m 0755 "$STATE_DIR"
+install -d -m 0700 "$STATE_DIR/backups"
 
-# --- 7. Config versioning, backups and rollback (martha-ha) -----------------------
+# --- 7. Backups (martha-ha) and the setup scripts ----------------------------------
 install -d -m 0755 /usr/local/lib/martha
-install -m 0755 "$ROOT/host/gate/martha_ha.py" /usr/local/lib/martha/martha_ha.py
+install -m 0755 "$ROOT/host/martha_ha.py" /usr/local/lib/martha/martha_ha.py
 ln -sf /usr/local/lib/martha/martha_ha.py /usr/local/sbin/martha-ha
+# Nightly pg_dump of the database; config backups are made before every deploy.
+install -m 0644 "$ROOT/host/martha-backup-db.service" "$ROOT/host/martha-backup-db.timer" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now martha-backup-db.timer
 # The dashboards per domain (Elektriciteit, Verwarming, Tapwater), used by the setup scripts.
 install -m 0755 "$ROOT/host/ha/dashboards.py" /usr/local/lib/martha/dashboards.py
-# P1 meter (DSMR) and its dashboard; run by hand after setup-gate (see readme.md).
+# P1 meter (DSMR) and its dashboard; run by hand after 'martha-ha token' (see readme.md).
 install -m 0755 "$ROOT/host/ha/setup_p1.py" /usr/local/lib/martha/setup_p1.py
 # Solar panels (prices, calculations, helpers, dashboard); run by hand after setup_p1.
 install -m 0755 "$ROOT/host/ha/setup_solar.py" /usr/local/lib/martha/setup_solar.py
@@ -322,13 +357,17 @@ install -d -m 0755 /usr/local/lib/martha/heat
 install -m 0644 "$ROOT/host/ha/packages/heat.yaml" /usr/local/lib/martha/heat/
 # Grott (Growatt datalogger, phase 5) from the bundle, plus martha's launchers, extension and
 # stand-ins. The services only start once 'setup_solar.py --inverter' wrote /etc/martha/grott.ini.
-rm -rf /usr/local/lib/martha/grott /usr/local/lib/martha/grott-martha
-if [ -d "$OFFLINE/grott" ]; then
-    install -d -m 0755 /usr/local/lib/martha/grott
-    install -m 0644 "$OFFLINE"/grott/*.py /usr/local/lib/martha/grott/
-else
-    log "WARNING: no Grott in the bundle (offline/grott); run 1. download/download.ps1 again"
+# With --host-only the Grott of the last full install stays.
+if [ -z "$HOST_ONLY" ]; then
+    rm -rf /usr/local/lib/martha/grott
+    if [ -d "$OFFLINE/grott" ]; then
+        install -d -m 0755 /usr/local/lib/martha/grott
+        install -m 0644 "$OFFLINE"/grott/*.py /usr/local/lib/martha/grott/
+    else
+        log "WARNING: no Grott in the bundle (offline/grott); run 1. download/download.ps1 again"
+    fi
 fi
+rm -rf /usr/local/lib/martha/grott-martha
 cp -r "$ROOT/host/grott" /usr/local/lib/martha/grott-martha
 find /usr/local/lib/martha/grott-martha -name __pycache__ -prune -exec rm -rf {} +
 chmod -R u=rwX,go=rX /usr/local/lib/martha/grott-martha
@@ -337,37 +376,39 @@ install -m 0644 "$ROOT/host/martha-grottserver.service" /etc/systemd/system/mart
 systemctl daemon-reload
 systemctl enable martha-grott.service martha-grottserver.service
 systemctl try-restart martha-grottserver.service martha-grott.service
-# Staging HA (started on demand by 'martha-ha staging') and its LAN forward on port 8124.
-install -m 0644 "$ROOT/host/gate/staging_proxy.py" /usr/local/lib/martha/staging_proxy.py
-install -m 0644 "$ROOT/host/martha-staging-proxy.service" /etc/systemd/system/martha-staging-proxy.service
-install -d -m 0755 "$STATE_DIR/staging"
-systemctl daemon-reload
-systemctl enable martha-staging-proxy.service
-systemctl restart martha-staging-proxy.service
-# HA creates its default configuration on first start; whatever exists now is committed,
-# the rest is picked up by the next 'martha-ha sync'.
-for _ in $(seq 60); do [ -f "$HA_DIR/config/configuration.yaml" ] && break; sleep 2; done
-martha-ha init || log "WARNING: martha-ha init failed; run 'sudo martha-ha init' later"
 
-# --- 8. martha-gate: the agent's only access (phase 3) --------------------------------
-# The gate runs as its own system user; the root daemon (martha-ha serve) does all that
-# needs privileges. The gate starts once 'martha-ha setup-gate' has written its tokens.
-getent group martha-gate >/dev/null || groupadd --system martha-gate
-id -u martha-gate >/dev/null 2>&1 ||
-    useradd --system --gid martha-gate --no-create-home --home-dir /nonexistent \
-        --shell /usr/sbin/nologin martha-gate
-install -m 0644 "$ROOT/host/gate/martha_gate.py" /usr/local/lib/martha/martha_gate.py
-install -m 0644 "$ROOT/host/ha/packages/martha_gate.yaml" /usr/local/lib/martha/martha_gate.yaml
-install -m 0644 "$ROOT/host/martha-ha.service" /etc/systemd/system/martha-ha.service
-install -m 0644 "$ROOT/host/martha-gate.service" /etc/systemd/system/martha-gate.service
-install -d -m 0755 /etc/martha
-install -d -m 0700 "$STATE_DIR/proposals"
+# --- 8. Clean-up: the agent layer, martha-gate and staging were removed on 2026-10-30 --
+for unit in martha-gate martha-ha martha-staging-proxy; do
+    if [ -e "/etc/systemd/system/$unit.service" ]; then
+        log "removing $unit.service"
+        systemctl disable --now "$unit.service" || true
+        rm -f "/etc/systemd/system/$unit.service"
+    fi
+done
 systemctl daemon-reload
-systemctl enable martha-ha.service martha-gate.service
-systemctl restart martha-ha.service
-systemctl restart martha-gate.service
+if docker container inspect homeassistant-staging >/dev/null 2>&1; then
+    log "removing the staging container"
+    docker rm -f homeassistant-staging >/dev/null
+fi
+if docker network inspect martha-staging >/dev/null 2>&1; then
+    docker network rm martha-staging >/dev/null
+fi
+rm -f /usr/local/lib/martha/martha_gate.py /usr/local/lib/martha/staging_proxy.py \
+    /usr/local/lib/martha/martha_gate.yaml /etc/martha/gate.env
+rm -rf "$STATE_DIR/staging" "$STATE_DIR/proposals"
+if id -u martha-gate >/dev/null 2>&1; then
+    log "removing the user martha-gate"
+    userdel martha-gate
+fi
+if getent group martha-gate >/dev/null; then
+    groupdel martha-gate
+fi
+[ ! -f /etc/martha/ha-root.env ] || sed -i '/^NOTIFY_SERVICE=/d' /etc/martha/ha-root.env
+# The old config repository (archived into the backups), packages/martha_gate.yaml with its
+# secret, and the HA user "Martha gate".
+martha-ha cleanup-legacy || log "WARNING: martha-ha cleanup-legacy failed; run install.sh again"
 
-cp "$OFFLINE/bundle.env" "$STATE_DIR/installed"
+[ -n "$HOST_ONLY" ] || cp "$OFFLINE/bundle.env" "$STATE_DIR/installed"
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 log "done: Home Assistant $HA_VERSION is starting on http://$(hostname).local:8123 (http://${ip:-<ip-of-this-pc>}:8123)"
