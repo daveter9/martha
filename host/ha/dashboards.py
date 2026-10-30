@@ -12,6 +12,7 @@ script. A domain without any views is not created; the dashboards of the earlier
 (per source: P1-meter, Zonnepanelen, Warmtepomp) are removed.
 """
 
+import hashlib
 import os
 import sys
 import time
@@ -170,12 +171,17 @@ def write(ws, token):
     views, home, (p1_ids, solar_ids) = collect(ws, token)
     write_energy(ws, p1_ids, solar_ids)
     existing = {d["url_path"]: d for d in ws.call("lovelace/dashboards/list")}
-    # Under the blocks of Elektriciteit: where the power comes from and goes to, now (from
-    # the energy settings that write_energy fills).
+    # Under the blocks of Elektriciteit: where the power comes from and goes to, now. Our own
+    # card: HA's power-sankey always shows "untracked consumption" (C25).
     extra = {}
-    if "electricity_used_tariff_1" in p1_ids:
-        extra["electricity"] = [{"type": "power-sankey", "title": "Stroom nu: waar vandaan, waar heen",
-                                 "layout": "auto"}]
+    if "current_electricity_usage" in p1_ids and write_resource(ws):
+        card = {"type": "custom:martha-power-flow", "title": "Stroom nu: waar vandaan, waar heen",
+                "grid_import": p1_ids["current_electricity_usage"]}
+        if p1_ids.get("current_electricity_delivery"):
+            card["grid_export"] = p1_ids["current_electricity_delivery"]
+        if solar_ids.get("solar_growatt_power"):
+            card["solar"] = solar_ids["solar_growatt_power"]
+        extra["electricity"] = [card]
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
@@ -198,6 +204,29 @@ def write(ws, token):
     shown = [k for k in DASHBOARDS if views[k]]
     write_sidebar(ws, [DASHBOARDS[k][0] for k in shown])
     write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown])   # last: it may restart HA
+
+
+CARD = "/www/martha/martha-power-flow.js"   # under m.CONFIG, installed by install.sh
+
+
+def write_resource(ws):
+    """Our own card as a Lovelace resource, with a hash of the file in the URL so browsers
+    load a new version. Returns False when install.sh has not installed the card."""
+    try:
+        with open(m.CONFIG + CARD, "rb") as f:
+            digest = hashlib.sha1(f.read()).hexdigest()[:10]
+    except OSError:
+        return False
+    url = f"/local/martha/martha-power-flow.js?v={digest}"
+    resources = ws.call("lovelace/resources")
+    mine = [r for r in resources if r["url"].split("?")[0] == "/local/martha/martha-power-flow.js"]
+    if any(r["url"] == url for r in mine):
+        return True
+    for r in mine:
+        ws.call("lovelace/resources/delete", resource_id=r["id"])
+    ws.call("lovelace/resources/create", res_type="module", url=url)
+    m.log(f"lovelace resource: {url}")
+    return True
 
 
 def write_energy(ws, p1, solar):

@@ -249,6 +249,11 @@ else
     printf 'martha_db_url: "%s"\n' "$db_url" >>"$SECRETS"
 fi
 
+# Our own dashboard card (power flow now, C25), served as /local/martha/; dashboards.py
+# registers it as a Lovelace resource. Outside the config repo, like martha_storage.yaml.
+install -d -m 0755 "$CONF/www/martha"
+install -m 0644 "$ROOT/host/ha/www/martha-power-flow.js" "$CONF/www/martha/martha-power-flow.js"
+
 # LTSS from the bundle (not HACS, which needs internet); always the bundled version.
 rm -rf "$CONF/custom_components/ltss"
 install -d -m 0755 "$CONF/custom_components"
