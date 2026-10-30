@@ -950,8 +950,8 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- Gas per 5-minute interval of the last p_hours, as the tap water detection split it (heat_gas):
--- JSON [[start (epoch s), heating m³/h, hot water m³/h], ...], oldest first, intervals with gas
--- only. For the graph on the page Gasmeter (host/ha/www/martha-gas-split.js). heat_1m spreads a
+-- JSON [[start (epoch s), heating m³/h, hot water m³/h], ...], oldest first, every complete
+-- interval (also without gas, so the graph is one line). For the graph on the page Gasmeter (host/ha/www/martha-gas-split.js). heat_1m spreads a
 -- meter report over the 5 minutes before it, so a 5-minute bucket is one report.
 CREATE OR REPLACE FUNCTION heat_gas_recent(p_hours integer DEFAULT 1)
 RETURNS text
@@ -963,7 +963,7 @@ LANGUAGE sql STABLE AS $$
                  sum(gas_space) AS space, sum(gas_dhw) AS dhw
           FROM heat_1m
           WHERE minute >= now() - make_interval(hours => p_hours) - INTERVAL '5 minutes'
-          GROUP BY 1 HAVING sum(gas) > 0) b
+          GROUP BY 1 HAVING count(*) = 5) b
 $$;
 
 -- --- Heat loss and forecast -------------------------------------------------------------

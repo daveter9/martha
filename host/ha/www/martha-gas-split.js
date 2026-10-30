@@ -1,6 +1,7 @@
-// Gas per 5-minute meter report over the last hour, as stacked bars in m³/h: the part the tap
-// water detection counted as heating and the part it counted as hot water (heat_gas in
-// host/db/heat.sql), so you can see what it chose.
+// Gas per 5-minute meter report over the last hour in m³/h, as a step line like the gas in
+// martha-thermostat-graph.js. The area under the line has the colour of what the tap water
+// detection chose (heat_gas in host/db/heat.sql): heating or hot water; a report split over
+// two intervals shows both, stacked. The line has the colour of the larger part.
 //
 //   type: custom:martha-gas-split
 //   entity: sensor.x      (attribute 'reeks': [[start epoch s, heating m³/h, hot water m³/h], ...])
@@ -83,18 +84,24 @@ class MarthaGasSplit extends HTMLElement {
         + `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</text>`;
     }
 
-    // Heating at the bottom, hot water on top; a small gap between the bars.
-    let rects = "";
+    // Per interval: the fill under the line (heating at the bottom, hot water on top), and the
+    // line itself, with a riser from the previous level, in the colour of the larger part.
+    let fill = "", line = "", prev = null;
     for (const [t, space, dhw] of bars) {
-      const x1 = x(t) + 1, w = Math.max(0, x(t + SLOT) - x(t) - 2);
-      if (space > 0) rects += `<rect x="${x1}" width="${w}" y="${y(space)}" height="${y(0) - y(space)}" fill="${COLORS.space}"/>`;
-      if (dhw > 0) rects += `<rect x="${x1}" width="${w}" y="${y(space + dhw)}" height="${y(space) - y(space + dhw)}" fill="${COLORS.dhw}"/>`;
+      const x1 = x(t), x2 = x(t + SLOT), top = space + dhw;
+      const color = dhw > space ? COLORS.dhw : COLORS.space;
+      if (space > 0) fill += `<rect x="${x1}" width="${x2 - x1}" y="${y(space)}" height="${y(0) - y(space)}" fill="${COLORS.space}" fill-opacity="0.25"/>`;
+      if (dhw > 0) fill += `<rect x="${x1}" width="${x2 - x1}" y="${y(top)}" height="${y(space) - y(top)}" fill="${COLORS.dhw}" fill-opacity="0.25"/>`;
+      const from = prev == null ? "" : `M${x1.toFixed(1)},${y(prev).toFixed(1)}V${y(top).toFixed(1)}`;
+      line += `<path d="${from}${from ? "" : `M${x1.toFixed(1)},${y(top).toFixed(1)}`}H${x2.toFixed(1)}" fill="none" stroke="${color}" stroke-width="1.5"/>`;
+      prev = top;
     }
 
     const sum = (i) => bars.reduce((s, b) => s + b[i], 0) / 12;   // m³/h per 5 minutes -> m³
     const legend = [["Verwarming", sum(1), COLORS.space], ["Tapwater", sum(2), COLORS.dhw]]
       .map(([name, v, color], i) =>
-        `<g transform="translate(${[0, 190][i] + 8},14)"><rect x="0" y="-6" width="14" height="12" fill="${color}"/>`
+        `<g transform="translate(${[0, 190][i] + 8},14)"><rect x="0" y="-6" width="18" height="12" fill="${color}" fill-opacity="0.25"/>`
+        + `<line x1="0" x2="18" y1="-6" y2="-6" stroke="${color}" stroke-width="1.5"/>`
         + `<text x="20" y="4">${name} <tspan font-weight="600">${fmt(v, 2)} m³</tspan></text></g>`).join("");
 
     this._card.innerHTML = `
@@ -108,7 +115,7 @@ class MarthaGasSplit extends HTMLElement {
         .err { color: var(--error-color); padding: 0 12px 8px; }
       </style>
       <div class="wrap"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Gas per 5 minuten: verwarming en tapwater">
-        ${grid}${legend}${rects}
+        ${grid}${legend}${fill}${line}
         <text x="${L - 6}" y="${H - B + 16}" text-anchor="end">m³/h</text>
       </svg></div>
       <div class="note">Per melding van de gasmeter (elke 5 minuten), zoals de herkenning van tapwater hem indeelt.
@@ -120,4 +127,4 @@ class MarthaGasSplit extends HTMLElement {
 customElements.define("martha-gas-split", MarthaGasSplit);
 window.customCards = window.customCards || [];
 window.customCards.push({ type: "martha-gas-split", name: "Martha gas verdeeld",
-  description: "Gas per 5 minuten: verwarming en tapwater gestapeld" });
+  description: "Gas per 5 minuten, ingekleurd naar verwarming of tapwater" });

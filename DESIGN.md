@@ -226,9 +226,10 @@ config-flow-API en de websocket met het root-token:
   nullen geven. Een eerdere versie als tabel per minuut (SQL-sensor) is op verzoek van de
   gebruiker vervangen (2026-10-09).
 - **Gas verdeeld (afgelopen uur)**, bovenaan de pagina *Gas* (verzoek van de gebruiker,
-  2026-10-30): per melding van de gasmeter een gestapelde balk in m³/h, met het deel dat de
-  tapwaterherkenning (`heat_gas`) als verwarming telde en het deel als tapwater (ook *los*) in
-  een eigen kleur, zodat je ziet wat de herkenning kiest. Eigen kaart
+  2026-10-30): het gas per melding van de gasmeter als traplijn in m³/h, zoals het gas in de
+  thermostaatgrafiek. Het vlak onder de lijn heeft de kleur van wat de tapwaterherkenning
+  (`heat_gas`) koos: paars voor verwarming, cyaan voor tapwater (ook *los*), zodat je ziet wat
+  de herkenning kiest. Eigen kaart
   `host/ha/www/martha-gas-split.js`; de reeks komt uit `heat_1m` via `heat_gas_recent()` als
   attribuut `reeks` van de SQL-sensor `heat_gas_recent`. De pagina *Gas* staat ook op
   Tapwater, zodat je er via beide dashboards komt.

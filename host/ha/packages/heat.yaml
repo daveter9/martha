@@ -240,7 +240,7 @@ sql:
     unique_id: heat_gas_recent
     icon: mdi:chart-bar-stacked
     column: v
-    # The state is the number of intervals with gas in the last hour; the series is an
+    # The state is the number of 5-minute intervals in the last hour; the series is an
     # attribute (heat_gas_recent), for the graph on the page Gasmeter.
     query: SELECT json_array_length(r::json) AS v, r AS reeks FROM (SELECT heat_gas_recent(1) AS r) x;
 
