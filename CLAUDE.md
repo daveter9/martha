@@ -6,7 +6,11 @@
   tegenkomt neem je daar meteen op.
 - **Commits.** Conventional commits, logisch opgesplitst. Push na elke commit meteen.
 - **Meteen naar productie.** Na elke aanpassing zet je die direct op martha (prod), niet
-  alleen in de repo.
+  alleen in de repo. Dat gaat via `ssh david@martha.local` (key-login): kopieer de
+  gewijzigde bestanden met `scp`, maak eerst een back-up (`martha-ha backup`, C19), installeer
+  ze zoals `host/install.sh` doet (SQL via `docker exec ... psql`, scripts naar
+  `/usr/local/lib/martha`) en draai het setup-script van het onderdeel. sudo vraagt een
+  wachtwoord; dat komt nooit in de repo.
 - **Taal.** Overleg en documentatie in het Nederlands; code en commentaar in scripts in het Engels.
 - **Architectuurvragen** stel je aan de gebruiker, in plaats van zelf te kiezen.
 - **Vragen stel je in de sessie, één tegelijk** (niet via Telegram). Stelt de gebruiker een
