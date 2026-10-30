@@ -83,7 +83,7 @@ class MarthaPowerFlow extends HTMLElement {
     for (const n of right) svg += node(n, W - NODE, "end", W);
 
     const title = this._config.title ? `<h1 class="card-header">${this._config.title}</h1>` : "";
-    this._card.innerHTML = `${title}<div style="padding: 0 16px 16px">` +
+    this._card.innerHTML = `${title}<div style="padding: ${title ? 0 : 16}px 16px 16px">` +
       `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;overflow:visible;` +
       `font: 12px var(--ha-font-family-body, sans-serif); fill: var(--primary-text-color)">${svg}</svg></div>`;
   }

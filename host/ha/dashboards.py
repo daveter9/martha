@@ -175,8 +175,7 @@ def write(ws, token):
     # card: HA's power-sankey always shows "untracked consumption" (C25).
     extra = {}
     if "current_electricity_usage" in p1_ids and write_resource(ws):
-        card = {"type": "custom:martha-power-flow", "title": "Stroom nu: waar vandaan, waar heen",
-                "grid_import": p1_ids["current_electricity_usage"]}
+        card = {"type": "custom:martha-power-flow", "grid_import": p1_ids["current_electricity_usage"]}
         if p1_ids.get("current_electricity_delivery"):
             card["grid_export"] = p1_ids["current_electricity_delivery"]
         if solar_ids.get("solar_growatt_power"):
