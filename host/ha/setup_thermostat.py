@@ -30,7 +30,7 @@ import martha_ha as m  # noqa: E402
 import dashboards  # noqa: E402
 
 DOMAIN = "homekit_controller"
-NAMES = ("lyric", "honeywell", "t6")   # how the thermostat announces itself
+NAMES = ("tstat", "lyric", "honeywell", "t6")   # how the thermostat announces itself (Tstat-XXXXXX)
 
 
 def entries(token):
@@ -43,7 +43,14 @@ def pair(token, code, device=None):
     if not re.fullmatch(r"\d{3}-\d{2}-\d{3}", code or ""):
         raise m.Error("the setup code looks like 123-45-678 (on the sticker of the thermostat)")
     m.log("looking for unpaired HomeKit accessories (loads HomeKit Device and zeroconf)")
-    flow = m.ha_api("POST", "/api/config/config_entries/flow", token, {"handler": DOMAIN}, timeout=120)
+    # Right after zeroconf is loaded, or after the thermostat joined the network, HA may not
+    # have its mDNS record cached yet ("no_devices"); try again a few times.
+    for attempt in range(4):
+        flow = m.ha_api("POST", "/api/config/config_entries/flow", token, {"handler": DOMAIN}, timeout=120)
+        if flow.get("type") != "abort" or flow.get("reason") != "no_devices" or attempt == 3:
+            break
+        m.log("nothing found yet; trying again in 15 seconds")
+        time.sleep(15)
     if flow.get("type") == "abort":
         raise m.Error(f"HomeKit Device found nothing to pair ({flow.get('reason')}); is the "
                       "thermostat removed from Apple Home and on the same network as martha?")
