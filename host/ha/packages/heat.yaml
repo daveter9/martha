@@ -264,6 +264,36 @@ sql:
     column: v
     query: SELECT round(elec_cost_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
 
+  - name: Stroomverbruik deze week
+    unique_id: heat_home_elec_week
+    icon: mdi:flash
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(elec_week::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Stroomverbruik deze maand
+    unique_id: heat_home_elec_month
+    icon: mdi:flash
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(elec_month::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Stroomkosten deze week
+    unique_id: heat_home_elec_cost_week
+    icon: mdi:flash
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(elec_cost_week::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Stroomkosten deze maand
+    unique_id: heat_home_elec_cost_month
+    icon: mdi:flash
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(elec_cost_month::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
   - name: Kosten verwarming nu
     unique_id: heat_home_space_cost_now
     icon: mdi:radiator

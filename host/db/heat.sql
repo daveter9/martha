@@ -820,9 +820,22 @@ LANGUAGE sql STABLE AS $$
     FROM heat_1d
 $$;
 
+-- A counter at time t: its last reading before t, or else (history starts later) its first
+-- reading after t.
+CREATE OR REPLACE FUNCTION heat_counter_at(p_entity text, p_t timestamptz)
+RETURNS double precision
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce(
+        (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = p_entity AND time < p_t
+         AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1),
+        (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = p_entity AND time >= p_t
+         AND ltss_numeric(state) IS NOT NULL ORDER BY time LIMIT 1))
+$$;
+
 -- The start screen and the overviews (C25): use and costs now and today per dashboard,
--- at contract prices without fixed costs. Electricity today = the import
--- counters now minus at local midnight (raw LTSS, so up to date). Gas now = the average of the
+-- at contract prices without fixed costs. Electricity today, this week (from Monday) and
+-- this month = the import counters now minus at the local start of that period (raw LTSS,
+-- so up to date), priced at the tariffs of now. Gas now = the average of the
 -- last 15 minutes in m³/h: the meter reports every 5 minutes and heat_job runs every 5
 -- minutes, so a shorter window would mostly show 0. Gas today from heat_1d.
 DROP FUNCTION IF EXISTS heat_home();
@@ -832,11 +845,15 @@ RETURNS TABLE (elec_today double precision, gas_space_now double precision,
                gas_dhw_today double precision,
                elec_cost_now double precision, elec_cost_today double precision,
                space_cost_now double precision, space_cost_today double precision,
-               dhw_cost_now double precision, dhw_cost_today double precision)
+               dhw_cost_now double precision, dhw_cost_today double precision,
+               elec_week double precision, elec_month double precision,
+               elec_cost_week double precision, elec_cost_month double precision)
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
     v_day    date := (now() AT TIME ZONE 'Europe/Amsterdam')::date;
     v_t0     timestamptz := date_trunc('day', now() AT TIME ZONE 'Europe/Amsterdam') AT TIME ZONE 'Europe/Amsterdam';
+    v_week   timestamptz := date_trunc('week', now() AT TIME ZONE 'Europe/Amsterdam') AT TIME ZONE 'Europe/Amsterdam';
+    v_month  timestamptz := date_trunc('month', now() AT TIME ZONE 'Europe/Amsterdam') AT TIME ZONE 'Europe/Amsterdam';
     -- Contract prices of now: the tariffs on Elektriciteit, else the helper; gas from the helper.
     p_low    double precision := coalesce(nullif(solar_setting_now('import_low'), 0), heat_price_now('electricity_price'));
     p_normal double precision := coalesce(nullif(solar_setting_now('import_normal'), 0), heat_price_now('electricity_price'));
@@ -849,6 +866,8 @@ DECLARE
     e_power  text := heat_entity_id('elec_power');
     v_tariff text;
     v_power  double precision;
+    c_low    double precision;
+    c_normal double precision;
     d_low    double precision;
     d_normal double precision;
     h        record;
@@ -860,20 +879,25 @@ BEGIN
     v_power := (SELECT ltss_numeric(state) FROM ltss
                 WHERE entity_id = e_power AND ltss_numeric(state) IS NOT NULL
                 ORDER BY time DESC LIMIT 1);
-    -- kWh used today per tariff: the counter now minus at local midnight.
-    SELECT (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_low
-            AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1)
-         - (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_low
-            AND time < v_t0 AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1),
-           (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_normal
-            AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1)
-         - (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_normal
-            AND time < v_t0 AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1)
-    INTO d_low, d_normal;
-    SELECT * INTO h FROM heat_1d WHERE heat_1d.day = v_day;
-
+    -- The counters now; kWh used in a period per tariff = now minus at its start.
+    c_low := (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_low
+              AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1);
+    c_normal := (SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_normal
+                 AND ltss_numeric(state) IS NOT NULL ORDER BY time DESC LIMIT 1);
+    d_low    := c_low - heat_counter_at(e_low, v_t0);
+    d_normal := c_normal - heat_counter_at(e_normal, v_t0);
     elec_today      := coalesce(d_low, 0) + coalesce(d_normal, 0);
     elec_cost_today := coalesce(d_low, 0) * p_low + coalesce(d_normal, 0) * p_normal;
+    d_low    := c_low - heat_counter_at(e_low, v_week);
+    d_normal := c_normal - heat_counter_at(e_normal, v_week);
+    elec_week       := coalesce(d_low, 0) + coalesce(d_normal, 0);
+    elec_cost_week  := coalesce(d_low, 0) * p_low + coalesce(d_normal, 0) * p_normal;
+    d_low    := c_low - heat_counter_at(e_low, v_month);
+    d_normal := c_normal - heat_counter_at(e_normal, v_month);
+    elec_month      := coalesce(d_low, 0) + coalesce(d_normal, 0);
+    elec_cost_month := coalesce(d_low, 0) * p_low + coalesce(d_normal, 0) * p_normal;
+    SELECT * INTO h FROM heat_1d WHERE heat_1d.day = v_day;
+
     elec_cost_now   := v_power * CASE WHEN v_tariff = 'low' THEN p_low ELSE p_normal END;
     SELECT coalesce(sum(gas_space), 0) * 4, coalesce(sum(gas_dhw), 0) * 4
     INTO gas_space_now, gas_dhw_now
