@@ -147,7 +147,12 @@ def collect(ws, token):
                             (p1_ids.get("current_electricity_usage"), "_age:last_reported"),
                             (heat.get("heat_home_elec_today"), "Vandaag"),
                             (heat.get("heat_home_elec_cost_now"), "Kosten nu"),
-                            (heat.get("heat_home_elec_cost_today"), "Kosten vandaag")],
+                            (heat.get("heat_home_elec_cost_today"), "Kosten vandaag"),
+                            # Only on the overview of Elektriciteit, not on the start screen.
+                            (heat.get("heat_home_elec_week"), "Deze week"),
+                            (heat.get("heat_home_elec_cost_week"), "Kosten deze week"),
+                            (heat.get("heat_home_elec_month"), "Deze maand"),
+                            (heat.get("heat_home_elec_cost_month"), "Kosten deze maand")],
             "heating": [(heat.get("heat_home_space_now"), "Nu"),
                         (gas_meter, "_age:last_changed"),
                         (heat.get("heat_home_space_today"), "Vandaag"),
@@ -281,18 +286,27 @@ def ago(entity, attribute):
             "{%% else %%}{{ s // 3600 }} uur geleden{%% endif %%}{%% endif %%}") % {"e": entity, "a": attribute}
 
 
-def now_today(values, horizontal=False):
+# The blocks of now_today(): label, then the names of the use and the costs in 'values'.
+BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag"),
+          ("Deze week", "Deze week", "Kosten deze week"),
+          ("Deze maand", "Deze maand", "Kosten deze maand")]
+
+
+def now_today(values, horizontal=False, labels=None):
     """Use and costs now and today (C25), as the user asked:
 
-        **Nu**          **Vandaag**
-        0,17 kW         5,95 kWh
-        0,05€/u         1,61€
+        **Nu**          **Vandaag**     **Deze week**   **Deze maand**
+        0,17 kW         5,95 kWh        41,20 kWh       180,33 kWh
+        0,05€/u         1,61€           11,12€          48,69€
 
-    'values' are (entity_id, name) with the names Nu, Vandaag, Kosten nu, Kosten vandaag."""
+    'values' are (entity_id, name) with the names of BLOCKS; a block without values is left
+    out (week and month are only there for electricity). 'labels' limits the blocks."""
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
     blocks = []
-    for label, use, cost in (("Nu", "Nu", "Kosten nu"), ("Vandaag", "Vandaag", "Kosten vandaag")):
+    for label, use, cost in BLOCKS:
+        if labels and label not in labels:
+            continue
         lines = [value(by[k]) for k in (use, cost) if k in by]
         if lines:
             blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
@@ -300,7 +314,7 @@ def now_today(values, horizontal=False):
         return None
     # How long ago the measurement behind 'Nu' is: small, at the very bottom of the card.
     footer = f"<small>{ago(*age)}</small>" if age else ""
-    if horizontal:   # on the overviews: Nu and Vandaag side by side, the age under both
+    if horizontal:   # on the overviews: the blocks side by side, the age under them
         stack = {"type": "horizontal-stack",
                  "cards": [{"type": "markdown", "content": b} for b in blocks]}
         if not footer:
@@ -327,7 +341,7 @@ def write_start(ws, dashboards):
     # costs. A markdown card, because it can hold all of that and still has a tap action.
     buttons = []
     for path, title, icon, values in dashboards:
-        body = now_today(values)
+        body = now_today(values, labels=("Nu", "Vandaag"))
         content = (f'<center><ha-icon icon="{icon}"></ha-icon><br><b>{title}</b>'
                    + ("<br><br>" + body["content"].replace("\n\n", "<br><br>") if body else "")
                    + "</center>")
