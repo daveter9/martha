@@ -173,11 +173,11 @@ class MarthaThermostatGraph extends HTMLElement {
 
     const last = (pts) => (pts.length ? pts[pts.length - 1][1] : null);
     const legend = [
-      ["Gemeten", last(temp), "°C", 1, COLORS.temp, ""],
-      ["Ingesteld", last(set), "°C", 1, COLORS.set, "4 3"],
+      ["Huidige temperatuur", last(temp), "°C", 1, COLORS.temp, ""],
+      ["Doeltemperatuur", last(set), "°C", 1, COLORS.set, "4 3"],
       ...(this._config.gas ? [["Gas verwarming", last(gas), "m³/h", 2, COLORS.gas, ""]] : []),
     ].map(([name, v, unit, d, color, dash], i) =>
-      `<g transform="translate(${L + i * 190},14)"><line x1="0" x2="18" y1="0" y2="0" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`
+      `<g transform="translate(${[0, 205, 372][i] + 8},14)"><line x1="0" x2="18" y1="0" y2="0" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`
       + `<text x="24" y="4">${name} <tspan font-weight="600">${v == null ? "–" : fmt(v, d)} ${unit}</tspan></text></g>`).join("");
 
     const gasArea = gas.length
