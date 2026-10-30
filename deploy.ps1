@@ -53,8 +53,9 @@ function Invoke-Git {
 
 # Remote commands avoid double quotes: Windows PowerShell 5.1 mangles them when calling native programs.
 function Invoke-Remote([string]$command, [switch]$Tty) {
-    $opts = $sshOpts
-    if ($Tty) { $opts = @('-tt') + $opts }
+    # -n: only the session with a terminal (sudo's password prompt) reads stdin.
+    $opts = @('-n') + $sshOpts
+    if ($Tty) { $opts = @('-tt') + $sshOpts }
     & $ssh @opts $Target $command
     if ($LASTEXITCODE -ne 0) { throw "Remote command failed (exit $LASTEXITCODE): $command" }
 }
@@ -70,7 +71,7 @@ $commit = Invoke-Git rev-parse --short=10 HEAD
 Write-Host "    commit $commit ($(Invoke-Git log -1 --format=%s))"
 
 # --- 2. What changed since the previous deploy ----------------------------------------------
-$info = @(& $ssh @sshOpts $Target 'cat /var/lib/martha/deployed 2>/dev/null; echo; test -f /etc/martha/grott.ini && echo inverter; true')
+$info = @(& $ssh -n @sshOpts $Target 'cat /var/lib/martha/deployed 2>/dev/null; echo; test -f /etc/martha/grott.ini && echo inverter; true')
 if ($LASTEXITCODE -ne 0) { throw "Cannot reach $Target (exit $LASTEXITCODE)" }
 $previous = "$($info[0])".Trim()
 $inverter = $info -contains 'inverter'
@@ -114,6 +115,6 @@ try {
     Invoke-Remote "sudo bash ~/$RemoteDir/host/deploy.sh $commit $db $($picked -join ' ')" -Tty
 } finally {
     Write-Step "Remove ~/$RemoteDir on martha"
-    & $ssh @sshOpts $Target "rm -rf ~/$RemoteDir"
+    & $ssh -n @sshOpts $Target "rm -rf ~/$RemoteDir"
 }
 Write-Step "Done: $commit is on martha"
