@@ -248,8 +248,11 @@ De koppelcode staat op de sticker en komt niet in de repo (die is publiek, C23).
   toegevoegd.
 - Een HomeKit-accessoire heeft één eigenaar: hij mag niet ook in Apple Woning staan.
 - De thermostaat moet op het hoofdnetwerk zitten (niet het gastnetwerk), anders ziet martha
-  hem niet via mDNS. **Stand 2026-10-30:** hij zat niet op het netwerk (geen `_hap._tcp`, geen
-  onbekend apparaat bij een scan van het LAN); eerst op de wifi zetten, dan koppelen.
+  hem niet via mDNS. Hij meldt zich als `Tstat-XXXXXX._hap._tcp` (model `YT4710WF1003`).
+  Vlak na het laden van zeroconf, of nadat hij net op het netwerk kwam, geeft de flow soms nog
+  `no_devices`; het script probeert het daarom een paar keer.
+- **Gekoppeld op 2026-10-30** (na verbinden met de wifi via de app Honeywell Home):
+  `climate.tstat_34040c_lyric_t6_thermostat`.
 - Op het overzicht van **Verwarming** staat onder de tabel een history-graph van 24 uur van de
   climate-entity: de gemeten temperatuur en de ingestelde temperatuur, met de stookperiodes
   gearceerd (`setup_thermostat.extra()`, via `dashboards.write`). LTSS bewaart `climate` al
