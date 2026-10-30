@@ -170,12 +170,18 @@ def write(ws, token):
     views, home, (p1_ids, solar_ids) = collect(ws, token)
     write_energy(ws, p1_ids, solar_ids)
     existing = {d["url_path"]: d for d in ws.call("lovelace/dashboards/list")}
+    # Under the blocks of Elektriciteit: where the power comes from and goes to, now (from
+    # the energy settings that write_energy fills).
+    extra = {}
+    if "electricity_used_tariff_1" in p1_ids:
+        extra["electricity"] = [{"type": "power-sankey", "title": "Stroom nu: waar vandaan, waar heen",
+                                 "layout": "auto"}]
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
         pages = views[key]
         # Progressive disclosure: an overview, the pages as subviews that go back to it.
-        first = overview(path, title, pages, home.get(key, []))
+        first = overview(path, title, pages, home.get(key, []), extra.get(key, []))
         views[key] = [titled(first, (title, ""), START)] + [
             {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
              "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
@@ -233,13 +239,13 @@ def write_energy(ws, p1, solar):
         m.log(f"energy settings: {len(wanted)} sources (grid per tariff" + (", solar)" if len(wanted) > 2 else ")"))
 
 
-def overview(path, title, subviews, values):
+def overview(path, title, subviews, values, extra=()):
     """Progressive disclosure (C25): a dashboard opens on an overview with its use now and
     today and a button per page; the pages are subviews (no tab bar, a back arrow)."""
     buttons = [{"type": "button", "name": v["title"], "icon": v.get("icon"), "show_state": False,
                 "tap_action": {"action": "navigate", "navigation_path": f"/{path}/{v['path']}"}}
                for v in subviews]
-    cards = [now_today(values, horizontal=True),
+    cards = [now_today(values, horizontal=True), *extra,
              {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
     return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",
             "cards": [c for c in cards if c]}
@@ -287,15 +293,15 @@ def ago(entity, attribute):
 
 
 # The blocks of now_today(): label, then the names of the use and the costs in 'values'.
-BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Deze dag", "Vandaag", "Kosten vandaag"),
-          ("Deze week", "Deze week", "Kosten deze week"),
-          ("Deze maand", "Deze maand", "Kosten deze maand")]
+BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Dag", "Vandaag", "Kosten vandaag"),
+          ("Week", "Deze week", "Kosten deze week"),
+          ("Maand", "Deze maand", "Kosten deze maand")]
 
 
 def now_today(values, horizontal=False, labels=None):
     """Use and costs now and today (C25), as the user asked:
 
-        **Nu**          **Deze dag**    **Deze week**   **Deze maand**
+        **Nu**          **Dag**         **Week**        **Maand**
         0,17 kW         5,95 kWh        41,20 kWh       180,33 kWh
         0,05€/u         1,61€           11,12€          48,69€
         12 s geleden
@@ -335,11 +341,11 @@ def write_start(ws, dashboards):
     # The title is HA's location name (Instellingen > Systeem > Algemeen), so the address
     # stays out of this repository.
     name = ws.call("get_config").get("location_name") or "Thuis"
-    # Three columns, one button each: the icon and name, then Nu and Deze dag with use and
+    # Three columns, one button each: the icon and name, then Nu and Dag with use and
     # costs. A markdown card, because it can hold all of that and still has a tap action.
     buttons = []
     for path, title, icon, values in dashboards:
-        body = now_today(values, labels=("Nu", "Deze dag"))
+        body = now_today(values, labels=("Nu", "Dag"))
         content = (f'<center><ha-icon icon="{icon}"></ha-icon><br><b>{title}</b>'
                    + ("<br><br>" + body["content"].replace("\n\n", "<br><br>") if body else "")
                    + "</center>")
