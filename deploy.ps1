@@ -93,7 +93,7 @@ if ($known) {
     }
     if ($changed | Where-Object { $_ -in 'host/ha/setup_heat.py', 'host/ha/packages/heat.yaml' -or $_ -like 'host/db/heat*' }) { $picked += 'setup_heat' }
     # Every setup script ends with the dashboards; on their own only when nothing else runs.
-    if (-not $picked -and ($changed | Where-Object { $_ -eq 'host/ha/dashboards.py' -or $_ -like 'host/ha/www/*' })) { $picked += 'dashboards' }
+    if (-not $picked -and ($changed | Where-Object { $_ -in 'host/ha/dashboards.py', 'host/ha/setup_thermostat.py' -or $_ -like 'host/ha/www/*' })) { $picked += 'dashboards' }
 } else {
     Write-Host "    previous deploy unknown ($(if ($previous) { $previous } else { 'none' })): database backup too, no setup scripts unless -Setup"
 }

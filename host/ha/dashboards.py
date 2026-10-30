@@ -189,6 +189,9 @@ def write(ws, token):
         if solar_ids.get("solar_growatt_power"):
             card["solar"] = solar_ids["solar_growatt_power"]
         extra["electricity"] = [card]
+    # Under the table of Verwarming: the room temperature and the setpoint of the thermostat.
+    import setup_thermostat
+    extra["heating"] = setup_thermostat.extra(setup_thermostat.climate_entity(ws, wait=0))
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue

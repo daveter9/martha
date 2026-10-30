@@ -355,6 +355,8 @@ install -m 0644 "$ROOT/host/ha/packages/solar.yaml" "$ROOT/host/ha/packages/sola
 install -m 0755 "$ROOT/host/ha/setup_heat.py" /usr/local/lib/martha/setup_heat.py
 install -d -m 0755 /usr/local/lib/martha/heat
 install -m 0644 "$ROOT/host/ha/packages/heat.yaml" /usr/local/lib/martha/heat/
+# The Honeywell thermostat through HomeKit and its graph on Verwarming; run by hand with --code.
+install -m 0755 "$ROOT/host/ha/setup_thermostat.py" /usr/local/lib/martha/setup_thermostat.py
 # Grott (Growatt datalogger, phase 5) from the bundle, plus martha's launchers, extension and
 # stand-ins. The services only start once 'setup_solar.py --inverter' wrote /etc/martha/grott.ini.
 # With --host-only the Grott of the last full install stays.
