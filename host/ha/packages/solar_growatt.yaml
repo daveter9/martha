@@ -1,6 +1,6 @@
 # Growatt MIN 3000TL-XH through Grott (docs/zonnepanelen.md, Z6, phase 5).
 # Deployed by host/ha/setup_solar.py --inverter as packages/solar_growatt.yaml (through
-# martha-ha, so it is in the config repository).
+# martha-ha put_files).
 #
 # martha-grott (host/grott) decodes the records of the ShineLAN-X and posts each one to this
 # webhook (only from martha itself: local_only). Grott sends raw integers; the layout

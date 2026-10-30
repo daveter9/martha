@@ -1,5 +1,5 @@
 # Heating: gas boiler versus an all-electric heat pump (docs/warmtepomp.md). Deployed by host/ha/setup_heat.py
-# as packages/heat.yaml (through martha-ha, so it is in the config repository); setup_heat.py
+# as packages/heat.yaml (through martha-ha put_files); setup_heat.py
 # fills in the weather entity (__WEATHER__). All functions and tables: host/db/heat.sql.
 #
 # The SQL sensors read the recorder's database (no db_url) and poll every 30 seconds, so they

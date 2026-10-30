@@ -1,6 +1,6 @@
 # Solar panels: results of the calculation layer in TimescaleDB (docs/zonnepanelen.md).
-# Deployed by host/ha/setup_solar.py as packages/solar.yaml (through martha-ha, so it is in
-# the config repository). All functions and tables: host/db/solar.sql.
+# Deployed by host/ha/setup_solar.py as packages/solar.yaml (through martha-ha put_files).
+# All functions and tables: host/db/solar.sql.
 #
 # The SQL sensors read the recorder's database (no db_url) and poll every 30 seconds, so
 # they only read stored results or cheap functions. The running totals (state_class total)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Set up the P1 meter (DSMR) in production Home Assistant, with a dashboard of graphs.
 
-Run as root on martha, after onboarding and 'martha-ha setup-gate' (it uses the admin
-token in /etc/martha/ha-root.env):
+Run as root on martha, after onboarding and 'martha-ha token' (it uses the admin token
+in /etc/martha/ha-root.env):
 
     sudo python3 /usr/local/lib/martha/setup_p1.py [--port /dev/ttyUSB0] [--interval 10]
 
@@ -199,7 +199,7 @@ def main():
         raise m.Error("run as root (sudo)")
     token = m.read_env(m.ROOT_ENV).get("HA_TOKEN")
     if not token:
-        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'martha-ha setup-gate' first")
+        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'sudo martha-ha token' first")
 
     m.backup("before-p1")
     entry = add_integration(token, a.port or find_port())

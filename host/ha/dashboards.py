@@ -475,7 +475,7 @@ def main():
         raise m.Error("run as root (sudo)")
     token = m.read_env(m.ROOT_ENV).get("HA_TOKEN")
     if not token:
-        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'martha-ha setup-gate' first")
+        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'sudo martha-ha token' first")
     ws = m.WebSocket(m.HA_URL, token)
     try:
         write(ws, token)

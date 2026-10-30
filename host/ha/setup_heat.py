@@ -11,8 +11,8 @@ Idempotent; each run:
   1. makes a backup (martha-ha backup before-heat);
   2. writes the P1 gas meter to the table heat_entity;
   3. makes sure LTSS stores input_number (the helpers keep their history);
-  4. deploys packages/heat.yaml through martha-ha (check_config, backup, restart, health
-     check, automatic rollback), with the weather entity filled in;
+  4. writes packages/heat.yaml with the weather entity filled in (martha-ha put_files:
+     check_config, restart, health check, the previous file back on errors);
   5. creates the helpers input_number.heat_* from the table heat_param that do not exist
      yet (existing helpers and their values are left alone), and removes helpers whose
      parameter is gone, plus registry entries of sensors no longer in the package;
@@ -112,18 +112,7 @@ def deploy_package(weather):
     with open(os.path.join(TEMPLATES, "heat.yaml")) as f:
         content = f.read().replace("__WEATHER__", weather)
 
-    def build(base):
-        with m.tempfile.TemporaryDirectory(dir=m.WORK) as tmp:
-            env = dict(os.environ, GIT_INDEX_FILE=os.path.join(tmp, "index"))
-            m.git("read-tree", base, env=env)
-            blob = m.git("hash-object", "-w", "--stdin", input=content).stdout.strip()
-            m.git("update-index", "--add", "--cacheinfo", f"100644,{blob},{PACKAGE}", env=env)
-            return m.git("write-tree", env=env).stdout.strip()
-
-    with m.locked(wait=True):
-        before = m.head()
-        after = m.apply(build, "heat: gas boiler versus heat pump (packages/heat.yaml)")
-    return after != before
+    return m.put_files({PACKAGE: content}, "heat: gas boiler versus heat pump")
 
 
 def create_helpers(ws, rows):
@@ -399,7 +388,7 @@ def main():
         raise m.Error("run as root (sudo)")
     token = m.read_env(m.ROOT_ENV).get("HA_TOKEN")
     if not token:
-        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'martha-ha setup-gate' first")
+        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'sudo martha-ha token' first")
 
     check_schema()
     m.backup("before-heat")

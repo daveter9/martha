@@ -12,8 +12,8 @@ Idempotent; each run:
      packages/martha_storage.yaml, so the helpers keep their history;
   4. adds the Nord Pool integration (area NL, EUR) if it is not there yet; that needs
      internet, and without it the step is skipped with a warning;
-  5. deploys packages/solar.yaml and packages/solar_prices.yaml through martha-ha
-     (check_config, backup, restart, health check, automatic rollback);
+  5. writes packages/solar.yaml and packages/solar_prices.yaml (martha-ha put_files:
+     check_config, restart, health check, the previous files back on errors);
   6. creates the helpers (tariffs, investment, forecast, battery) that do not exist yet;
      existing helpers and their values are left alone;
   7. writes the dashboards per domain (host/ha/dashboards.py): the solar tabs are on
@@ -167,7 +167,7 @@ def add_nordpool(token):
 
 
 def ensure_webhook_secret():
-    """The webhook id Grott posts to, in secrets.yaml (0600, never in the config repo).
+    """The webhook id Grott posts to, in secrets.yaml (0600).
     Created once; returns it."""
     text = ""
     if os.path.exists(SECRETS):
@@ -219,25 +219,12 @@ def write_pv_roles(ws):
 
 
 def deploy_packages(paths):
-    """Put the packages in production through martha-ha. True when something changed."""
+    """Write the packages through martha-ha. True when something changed."""
     contents = {}
     for path in paths:
         with open(os.path.join(TEMPLATES, os.path.basename(path))) as f:
             contents[path] = f.read()
-
-    def build(base):
-        with m.tempfile.TemporaryDirectory(dir=m.WORK) as tmp:
-            env = dict(os.environ, GIT_INDEX_FILE=os.path.join(tmp, "index"))
-            m.git("read-tree", base, env=env)
-            for path, content in contents.items():
-                blob = m.git("hash-object", "-w", "--stdin", input=content).stdout.strip()
-                m.git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env)
-            return m.git("write-tree", env=env).stdout.strip()
-
-    with m.locked(wait=True):
-        before = m.head()
-        after = m.apply(build, "solar: calculations and day-ahead prices (packages/solar*.yaml)")
-    return after != before
+    return m.put_files(contents, "solar: calculations and day-ahead prices")
 
 
 def restart():
@@ -432,7 +419,7 @@ def main():
         raise m.Error("run as root (sudo)")
     token = m.read_env(m.ROOT_ENV).get("HA_TOKEN")
     if not token:
-        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'martha-ha setup-gate' first")
+        raise m.Error(f"no HA_TOKEN in {m.ROOT_ENV}; run 'sudo martha-ha token' first")
 
     check_schema()
     m.backup("before-solar")

@@ -1,6 +1,6 @@
 # Day-ahead prices (Nord Pool, area NL) kept forever in the database (docs/zonnepanelen.md, Z10).
-# Deployed by host/ha/setup_solar.py as packages/solar_prices.yaml (through martha-ha, so it
-# is in the config repository). The Nord Pool integration itself is a config entry, added by
+# Deployed by host/ha/setup_solar.py as packages/solar_prices.yaml (through martha-ha
+# put_files). The Nord Pool integration itself is a config entry, added by
 # the same script.
 #
 # Flow: the SQL sensor lists the local days of the last 31 days (and tomorrow after 13:30)
