@@ -21,6 +21,16 @@ template:
         state: "{{ state_attr('__WEATHER__', 'temperature') }}"
         availability: "{{ state_attr('__WEATHER__', 'temperature') is number }}"
 
+      # The series of the SQL sensor heat_gas_recent, copied: the recorder leaves the
+      # attributes of a SQL sensor out of its history, but keeps these. The graph Gas verdeeld
+      # joins them to move back through time (host/ha/www/martha-gas-split.js).
+      - name: Gas verdeeld
+        unique_id: heat_gas_split
+        icon: mdi:chart-areaspline
+        state: "{{ states('sensor.gas_per_5_minuten_verdeeld') }}"
+        attributes:
+          reeks: "{{ state_attr('sensor.gas_per_5_minuten_verdeeld', 'reeks') }}"
+
 # Gas market price per hour from EnergyZero (day-ahead, EUR/m³, without taxes or markup), for
 # the comparison at market prices. The attribute Prices (the last 3 days and tomorrow) goes
 # through LTSS into the table heat_gas_market (trigger heat_capture), so missed hours are

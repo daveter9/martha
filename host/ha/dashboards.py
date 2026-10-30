@@ -205,8 +205,8 @@ def write(ws, token):
     gas_page = next((v for v in views["heating"] if v["path"] == "gas"), None)
     split = None
     if gas_page:
-        if heat_ids.get("heat_gas_recent") and write_resource(ws, "martha-gas-split.js"):
-            split = {"type": "custom:martha-gas-split", "entity": heat_ids["heat_gas_recent"], "hours": 1}
+        if heat_ids.get("heat_gas_split") and write_resource(ws, "martha-gas-split.js"):
+            split = {"type": "custom:martha-gas-split", "entity": heat_ids["heat_gas_split"], "hours": 1}
         if views["dhw"]:
             views["dhw"].append(copy.deepcopy(gas_page))
         for key in ("heating", "dhw"):

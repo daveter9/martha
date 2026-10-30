@@ -236,8 +236,9 @@ config-flow-API en de websocket met het root-token:
   *Gas verdeeld* (`gas-verdeeld`, op beide dashboards) met de grafiek groot en, net als HA's
   grafieken, interactief: zoomen met scrollen of twee vingers, slepen door de tijd, de waarden
   bij aanwijzen of tikken, knoppen voor in- en uitzoomen en *Nu*. Oudere stukken komen uit de
-  geschiedenis van de sensor in de recorder (elke toestand bevat het laatste uur; de nieuwste
-  per interval telt), dus terug tot `purge_keep_days` (10 dagen), en niet verder dan
+  geschiedenis in de recorder van de template-sensor `heat_gas_split`, een kopie van de reeks
+  (de recorder slaat de attributen van een SQL-sensor niet op). Elke toestand bevat het laatste
+  uur; de nieuwste per interval telt, dus terug tot `purge_keep_days` (10 dagen), en niet verder dan
   2026-10-30, toen de sensor er kwam.
 
 ### Zonnepanelen
