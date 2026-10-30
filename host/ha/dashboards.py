@@ -346,7 +346,7 @@ BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Dag", "Vandaag", "Kosten vandaag"),
 
 
 # Overviews that show the use as a table, with the unit labels of the use and the costs row.
-TABLES = {"electricity": ("kWh", "€")}
+TABLES = {"electricity": ("kWh", "€"), "heating": ("m³", "€"), "dhw": ("m³", "€")}
 
 
 def now_table(values, use_unit, cost_unit):
