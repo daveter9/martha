@@ -389,6 +389,20 @@ Daarna, met de hand: vul onder **Verwarming → Instellingen** in wat je weet (g
 kosten, aanvoertemperatuur, gasverbruik van vorig jaar) en vul de stroomtarieven in onder
 **Elektriciteit → Instellingen**. Het tabblad **Aannames** laat zien welke waarden nog op hun standaard staan.
 
+### Thermostaat (Honeywell, via HomeKit)
+
+De Honeywell Lyric T6 koppelt lokaal met Home Assistant, via HomeKit (geen Honeywell-cloud).
+Op Verwarming staat daarna een grafiek van de gemeten en de ingestelde temperatuur.
+
+1. Zet de thermostaat op je **gewone wifi** (niet het gastnetwerk), bijvoorbeeld met de app
+   *Honeywell Home* (Resideo).
+2. Staat hij in Apple Woning, verwijder hem daar dan eerst: HomeKit koppelt met maar één eigenaar.
+3. Koppel hem met de code op de sticker aan de zijkant:
+
+   ```bash
+   ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_thermostat.py --code 123-45-678
+   ```
+
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).
