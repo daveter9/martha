@@ -1,0 +1,10 @@
+[Unit]
+Description=Martha: nightly pg_dump of the Home Assistant database (martha-ha backup-db)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/martha-ha backup-db nightly
+Nice=10
+IOSchedulingClass=idle
