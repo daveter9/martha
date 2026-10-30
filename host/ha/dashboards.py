@@ -200,14 +200,20 @@ def write(ws, token):
         extra["heating"] = setup_thermostat.extra(climate, heat_ids.get("heat_home_space_now"))
     # The page Gasmeter: first the last hour per meter report, split into heating and hot water
     # as the detection chose; the page is on Tapwater too (user's request, 2026-10-30).
+    # A tap on it opens the page Gas verdeeld with the graph large, to zoom and move through
+    # time (gas_split_page).
     gas_page = next((v for v in views["heating"] if v["path"] == "gas"), None)
+    split = None
     if gas_page:
         if heat_ids.get("heat_gas_recent") and write_resource(ws, "martha-gas-split.js"):
-            day = gas_page["sections"][0]["cards"]
-            day.insert(1, {"type": "custom:martha-gas-split", "entity": heat_ids["heat_gas_recent"],
-                           "hours": 1})
+            split = {"type": "custom:martha-gas-split", "entity": heat_ids["heat_gas_recent"], "hours": 1}
         if views["dhw"]:
             views["dhw"].append(copy.deepcopy(gas_page))
+        for key in ("heating", "dhw"):
+            page_ = next((v for v in views[key] if v["path"] == "gas"), None)
+            if split and page_:
+                page_["sections"][0]["cards"].insert(1, {
+                    **split, "navigation_path": f"/{DASHBOARDS[key][0]}/gas-verdeeld"})
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
@@ -218,6 +224,8 @@ def write(ws, token):
         views[key] = [titled(first, (title, ""), START)] + [
             {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
              "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
+        if split and any(v["path"] == "gas" for v in pages):
+            views[key].append(gas_split_page(split, path))
         if path not in existing:
             ws.call("lovelace/dashboards/create", url_path=path, title=title, icon=icon,
                     show_in_sidebar=True, require_admin=False, mode="storage")
@@ -231,6 +239,19 @@ def write(ws, token):
     shown = [k for k in DASHBOARDS if views[k]]
     write_sidebar(ws, [DASHBOARDS[k][0] for k in shown])
     write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown])   # last: it may restart HA
+
+
+def gas_split_page(card, path):
+    """The gas per meter report, heating and hot water, large and interactive; a subview of
+    the page Gas (no button on the overview)."""
+    view = {"title": "Gas verdeeld", "path": "gas-verdeeld", "icon": "mdi:chart-areaspline",
+            "type": "sections", "max_columns": 4,
+            "sections": [{"type": "grid", "column_span": 4,
+                          "cards": [{**card, "height": 480, "grid_options": {"columns": "full"}}]}]}
+    back = f"/{path}/gas"
+    return {**titled(view, ("Gas verdeeld", "Per melding van de gasmeter: verwarming en tapwater. "
+                            "Zoom met scrollen of twee vingers, sleep om door de tijd te gaan."), back),
+            "subview": True, "back_path": back}
 
 
 CARDS = m.CONFIG + "/www/martha/"   # our own cards, installed by install.sh
