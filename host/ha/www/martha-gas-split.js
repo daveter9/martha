@@ -111,15 +111,12 @@ class MarthaGasSplit extends HTMLElement {
         svg text { fill: var(--secondary-text-color); }
         svg g text { fill: var(--primary-text-color); }
         .grid { stroke: var(--divider-color); stroke-width: 1; }
-        .note { color: var(--secondary-text-color); font-size: 12px; padding: 0 12px 10px; }
         .err { color: var(--error-color); padding: 0 12px 8px; }
       </style>
       <div class="wrap"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Gas per 5 minuten: verwarming en tapwater">
         ${grid}${legend}${fill}${line}
         <text x="${L - 6}" y="${H - B + 16}" text-anchor="end">m³/h</text>
       </svg></div>
-      <div class="note">Per melding van de gasmeter (elke 5 minuten), zoals de herkenning van tapwater hem indeelt.
-        De nieuwste melding telt de eerste 10 minuten als verwarming.</div>
       ${this._error ? `<div class="err">${this._error}</div>` : ""}`;
   }
 }
