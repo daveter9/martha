@@ -136,7 +136,7 @@ class MarthaThermostatGraph extends HTMLElement {
     const gas = this._config.gas ? clip(this._series.gas) : [];
 
     const temps = temp.concat(set).map((p) => p[1]);
-    const ty = temps.length ? nice(Math.min(...temps) - 0.5, Math.max(...temps) + 0.5, 5)
+    const ty = temps.length ? nice(Math.min(...temps) - 0.5, Math.max(...temps) + 0.5, 12)
                             : { lo: 15, hi: 22, step: 1 };
     const gy = nice(0, Math.max(0.1, ...gas.map((p) => p[1])), 5);
     const x = (t) => L + ((t - t0) / (now - t0)) * (W - L - R);
