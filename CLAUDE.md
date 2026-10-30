@@ -5,6 +5,8 @@
   architectuurbeslissingen in [DESIGN.md](DESIGN.md). Nieuwe constraints die je
   tegenkomt neem je daar meteen op.
 - **Commits.** Conventional commits, logisch opgesplitst. Push na elke commit meteen.
+  Kijk vóór elke push (`git log origin/master..HEAD`) of er lokaal nieuwe commits zijn
+  bijgekomen die niet van jou zijn; meld die eerst, in plaats van ze ongezien mee te pushen.
 - **Meteen naar productie.** Na elke aanpassing zet je die direct op martha (prod), niet
   alleen in de repo. Dat gaat via `ssh david@martha.local` (key-login): kopieer de
   gewijzigde bestanden met `scp`, maak eerst een back-up (`martha-ha backup`, C19), installeer
