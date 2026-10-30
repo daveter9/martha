@@ -5,6 +5,8 @@
   architectuurbeslissingen in [DESIGN.md](DESIGN.md). Nieuwe constraints die je
   tegenkomt neem je daar meteen op.
 - **Commits.** Conventional commits, logisch opgesplitst. Push na elke commit meteen.
+- **Meteen naar productie.** Na elke aanpassing zet je die direct op martha (prod), niet
+  alleen in de repo.
 - **Taal.** Overleg en documentatie in het Nederlands; code en commentaar in scripts in het Engels.
 - **Architectuurvragen** stel je aan de gebruiker, in plaats van zelf te kiezen.
 - **Vragen stel je in de sessie, één tegelijk** (niet via Telegram). Stelt de gebruiker een
