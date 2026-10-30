@@ -149,7 +149,7 @@ def collect(ws, token):
                             (heat.get("heat_home_elec_today"), "Vandaag"),
                             (heat.get("heat_home_elec_cost_now"), "Kosten nu"),
                             (heat.get("heat_home_elec_cost_today"), "Kosten vandaag"),
-                            # Only on the overview of Elektriciteit, not on the start screen.
+                            # Week and month: only on the overviews, not on the start screen.
                             (heat.get("heat_home_elec_week"), "Deze week"),
                             (heat.get("heat_home_elec_cost_week"), "Kosten deze week"),
                             (heat.get("heat_home_elec_month"), "Deze maand"),
@@ -158,12 +158,20 @@ def collect(ws, token):
                         (gas_meter, "_age:last_changed"),
                         (heat.get("heat_home_space_today"), "Vandaag"),
                         (heat.get("heat_home_space_cost_now"), "Kosten nu"),
-                        (heat.get("heat_home_space_cost_today"), "Kosten vandaag")],
+                        (heat.get("heat_home_space_cost_today"), "Kosten vandaag"),
+                        (heat.get("heat_home_space_week"), "Deze week"),
+                        (heat.get("heat_home_space_cost_week"), "Kosten deze week"),
+                        (heat.get("heat_home_space_month"), "Deze maand"),
+                        (heat.get("heat_home_space_cost_month"), "Kosten deze maand")],
             "dhw": [(heat.get("heat_home_dhw_now"), "Nu"),
                     (gas_meter, "_age:last_changed"),
                     (heat.get("heat_home_dhw_today"), "Vandaag"),
                     (heat.get("heat_home_dhw_cost_now"), "Kosten nu"),
-                    (heat.get("heat_home_dhw_cost_today"), "Kosten vandaag")]}
+                    (heat.get("heat_home_dhw_cost_today"), "Kosten vandaag"),
+                    (heat.get("heat_home_dhw_week"), "Deze week"),
+                    (heat.get("heat_home_dhw_cost_week"), "Kosten deze week"),
+                    (heat.get("heat_home_dhw_month"), "Deze maand"),
+                    (heat.get("heat_home_dhw_cost_month"), "Kosten deze maand")]}
     return out, home, (p1_ids, solar)
 
 
@@ -335,7 +343,7 @@ def now_today(values, horizontal=False, labels=None):
         12 s geleden
 
     'values' are (entity_id, name) with the names of BLOCKS; a block without values is left
-    out (week and month are only there for electricity). 'labels' limits the blocks."""
+    out. 'labels' limits the blocks (Thuis shows only Nu and Dag)."""
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
     blocks = []

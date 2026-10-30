@@ -322,6 +322,62 @@ sql:
     column: v
     query: SELECT round(dhw_cost_today::numeric, 2) AS v FROM heat_home() LIMIT 1;
 
+  - name: Gas verwarming deze week
+    unique_id: heat_home_space_week
+    icon: mdi:radiator
+    unit_of_measurement: m³
+    column: v
+    query: SELECT round(gas_space_week::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Gas verwarming deze maand
+    unique_id: heat_home_space_month
+    icon: mdi:radiator
+    unit_of_measurement: m³
+    column: v
+    query: SELECT round(gas_space_month::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten verwarming deze week
+    unique_id: heat_home_space_cost_week
+    icon: mdi:radiator
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(space_cost_week::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten verwarming deze maand
+    unique_id: heat_home_space_cost_month
+    icon: mdi:radiator
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(space_cost_month::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Gas tapwater deze week
+    unique_id: heat_home_dhw_week
+    icon: mdi:shower-head
+    unit_of_measurement: m³
+    column: v
+    query: SELECT round(gas_dhw_week::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Gas tapwater deze maand
+    unique_id: heat_home_dhw_month
+    icon: mdi:shower-head
+    unit_of_measurement: m³
+    column: v
+    query: SELECT round(gas_dhw_month::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten tapwater deze week
+    unique_id: heat_home_dhw_cost_week
+    icon: mdi:shower-head
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(dhw_cost_week::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
+  - name: Kosten tapwater deze maand
+    unique_id: heat_home_dhw_cost_month
+    icon: mdi:shower-head
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(dhw_cost_month::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
   # --- Results (heat_results, hourly) ----------------------------------------------------
   - name: Warmtepomp besparing per jaar
     unique_id: heat_forecast

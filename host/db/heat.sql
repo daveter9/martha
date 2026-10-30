@@ -837,7 +837,8 @@ $$;
 -- this month = the import counters now minus at the local start of that period (raw LTSS,
 -- so up to date), priced at the tariffs of now. Gas now = the average of the
 -- last 15 minutes in m³/h: the meter reports every 5 minutes and heat_job runs every 5
--- minutes, so a shorter window would mostly show 0. Gas today from heat_1d.
+-- minutes, so a shorter window would mostly show 0. Gas today, this week and this month
+-- from heat_1d (the sum of its days in the period).
 DROP FUNCTION IF EXISTS heat_home();
 CREATE OR REPLACE FUNCTION heat_home()
 RETURNS TABLE (elec_today double precision, gas_space_now double precision,
@@ -847,7 +848,11 @@ RETURNS TABLE (elec_today double precision, gas_space_now double precision,
                space_cost_now double precision, space_cost_today double precision,
                dhw_cost_now double precision, dhw_cost_today double precision,
                elec_week double precision, elec_month double precision,
-               elec_cost_week double precision, elec_cost_month double precision)
+               elec_cost_week double precision, elec_cost_month double precision,
+               gas_space_week double precision, gas_space_month double precision,
+               gas_dhw_week double precision, gas_dhw_month double precision,
+               space_cost_week double precision, space_cost_month double precision,
+               dhw_cost_week double precision, dhw_cost_month double precision)
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
     v_day    date := (now() AT TIME ZONE 'Europe/Amsterdam')::date;
@@ -908,6 +913,14 @@ BEGIN
     gas_dhw_today    := coalesce(h.gas_dhw, 0);
     space_cost_today := coalesce(h.cv_cost - coalesce(h.cv_cost_dhw, 0), 0);
     dhw_cost_today   := coalesce(h.cv_cost_dhw, 0);
+    SELECT coalesce(sum(gas_space), 0), coalesce(sum(gas_dhw), 0),
+           coalesce(sum(cv_cost - coalesce(cv_cost_dhw, 0)), 0), coalesce(sum(cv_cost_dhw), 0)
+    INTO gas_space_week, gas_dhw_week, space_cost_week, dhw_cost_week
+    FROM heat_1d WHERE heat_1d.day >= v_week::date AND heat_1d.day <= v_day;
+    SELECT coalesce(sum(gas_space), 0), coalesce(sum(gas_dhw), 0),
+           coalesce(sum(cv_cost - coalesce(cv_cost_dhw, 0)), 0), coalesce(sum(cv_cost_dhw), 0)
+    INTO gas_space_month, gas_dhw_month, space_cost_month, dhw_cost_month
+    FROM heat_1d WHERE heat_1d.day >= v_month::date AND heat_1d.day <= v_day;
     RETURN NEXT;
 END $$;
 
