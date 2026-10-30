@@ -364,13 +364,14 @@ def now_table(values, use_unit, cost_unit):
     if not cols:
         return None
 
+    # HTML instead of a markdown table, so it can be centred (align passes HA's sanitizer).
     def row(unit, i):
-        return "| " + " | ".join([unit] + [number(by[c[i]]) if c[i] in by else "–" for c in cols]) + " |"
+        cells = [number(by[c[i]]) if c[i] in by else "–" for c in cols]
+        return f"<tr><td>{unit}</td>" + "".join(f'<td align="right">{x}</td>' for x in cells) + "</tr>"
     corner = f"<small>{ago(*age)}</small>" if age else ""
-    lines = [f"| {corner} | " + " | ".join(c[0] for c in cols) + " |",
-             "|---|" + "---:|" * len(cols),
-             row(use_unit, 1), row(cost_unit, 2)]
-    return {"type": "markdown", "content": "\n".join(lines)}
+    head = f"<tr><th>{corner}</th>" + "".join(f'<th align="right">{c[0]}</th>' for c in cols) + "</tr>"
+    return {"type": "markdown",
+            "content": f'<table align="center">{head}{row(use_unit, 1)}{row(cost_unit, 2)}</table>'}
 
 
 def now_today(values, horizontal=False, labels=None):
