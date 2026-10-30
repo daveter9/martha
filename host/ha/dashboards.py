@@ -12,6 +12,7 @@ script. A domain without any views is not created; the dashboards of the earlier
 (per source: P1-meter, Zonnepanelen, Warmtepomp) are removed.
 """
 
+import copy
 import hashlib
 import os
 import sys
@@ -28,6 +29,7 @@ DASHBOARDS = {
 }
 OLD = ("p1-meter", "zonne-energie", "warmte-pomp")
 
+HEADINGS_GAS = ("Gasmeter", "Gasverbruik per 5 minuten, per dag en per maand")
 # Every page starts with a title that says what is on it (C25), by dashboard and view path.
 HEADINGS = {
     ("electricity", "gebruik-woning"): ("Gebruik woning", "Vermogen, en gebruik en kosten per uur, dag, week, maand en jaar"),
@@ -37,13 +39,14 @@ HEADINGS = {
     ("electricity", "investering"): ("Investering zonnepanelen", "Terugverdienen: tot nu toe en de prognose"),
     ("electricity", "overschot"): ("Zonne-overschot", "Wat een batterij zou opleveren, en het overschot per uur"),
     ("electricity", "instellingen"): ("Instellingen stroom", "Stroomtarieven en de aannames van de zonnepanelen"),
-    ("heating", "gas"): ("Gasmeter", "Gasverbruik per 5 minuten, per dag en per maand"),
+    ("heating", "gas"): HEADINGS_GAS,
     ("heating", "kosten"): ("Kosten verwarmen", "CV-ketel tegen warmtepomp, met contract- en marktprijs"),
     ("heating", "berekening"): ("Berekening", "Zo wordt één minuut uitgerekend, met de formules"),
     ("heating", "prognose"): ("Prognose per jaar", "Kosten met een gemiddeld jaar, en het warmteverlies van het huis"),
     ("heating", "aannames"): ("Aannames", "Waar de berekening op rust en wat je kunt verfijnen"),
     ("heating", "instellingen"): ("Instellingen verwarming", "Prijzen, huis en ketel, en de warmtepomp"),
     ("dhw", "tapwater"): ("Tapwater", "Gas en kosten voor warm water: CV-ketel tegen warmtepomp"),
+    ("dhw", "gas"): HEADINGS_GAS,
 }
 # Built-in panels hidden from the sidebar (C24). They stay loaded: the dashboards need history
 # (history graphs) and energy (period selection); logbook and media come with them.
@@ -195,6 +198,16 @@ def write(ws, token):
     climate = setup_thermostat.climate_entity(ws, wait=0)
     if climate and write_resource(ws, "martha-thermostat-graph.js"):
         extra["heating"] = setup_thermostat.extra(climate, heat_ids.get("heat_home_space_now"))
+    # The page Gasmeter: first the last hour per meter report, split into heating and hot water
+    # as the detection chose; the page is on Tapwater too (user's request, 2026-10-30).
+    gas_page = next((v for v in views["heating"] if v["path"] == "gas"), None)
+    if gas_page:
+        if heat_ids.get("heat_gas_recent") and write_resource(ws, "martha-gas-split.js"):
+            day = gas_page["sections"][0]["cards"]
+            day.insert(1, {"type": "custom:martha-gas-split", "entity": heat_ids["heat_gas_recent"],
+                           "hours": 1})
+        if views["dhw"]:
+            views["dhw"].append(copy.deepcopy(gas_page))
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue

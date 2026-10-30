@@ -236,6 +236,14 @@ sql:
     column: v
     query: SELECT round(gas_dhw_now::numeric, 2) AS v FROM heat_home() LIMIT 1;
 
+  - name: Gas per 5 minuten verdeeld
+    unique_id: heat_gas_recent
+    icon: mdi:chart-bar-stacked
+    column: v
+    # The state is the number of intervals with gas in the last hour; the series is an
+    # attribute (heat_gas_recent), for the graph on the page Gasmeter.
+    query: SELECT json_array_length(r::json) AS v, r AS reeks FROM (SELECT heat_gas_recent(1) AS r) x;
+
   - name: Gas verwarming vandaag
     unique_id: heat_home_space_today
     icon: mdi:radiator

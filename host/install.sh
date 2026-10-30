@@ -280,7 +280,8 @@ fi
 # Our own dashboard cards (power flow, thermostat graph; C25), served as /local/martha/; dashboards.py
 # registers them as Lovelace resources.
 install -d -m 0755 "$CONF/www/martha"
-install -m 0644 "$ROOT/host/ha/www/martha-power-flow.js" "$ROOT/host/ha/www/martha-thermostat-graph.js" "$CONF/www/martha/"
+install -m 0644 "$ROOT/host/ha/www/martha-power-flow.js" "$ROOT/host/ha/www/martha-thermostat-graph.js" \
+    "$ROOT/host/ha/www/martha-gas-split.js" "$CONF/www/martha/"
 
 if [ -z "$HOST_ONLY" ]; then
     # LTSS from the bundle (not HACS, which needs internet); always the bundled version.

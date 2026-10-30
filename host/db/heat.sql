@@ -949,6 +949,23 @@ LANGUAGE sql STABLE AS $$
     FROM (SELECT * FROM heat_1d ORDER BY day DESC LIMIT p_days) d
 $$;
 
+-- Gas per 5-minute interval of the last p_hours, as the tap water detection split it (heat_gas):
+-- JSON [[start (epoch s), heating m³/h, hot water m³/h], ...], oldest first, intervals with gas
+-- only. For the graph on the page Gasmeter (host/ha/www/martha-gas-split.js). heat_1m spreads a
+-- meter report over the 5 minutes before it, so a 5-minute bucket is one report.
+CREATE OR REPLACE FUNCTION heat_gas_recent(p_hours integer DEFAULT 1)
+RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce(json_agg(json_build_array(extract(epoch FROM t)::bigint,
+                                              round((space * 12)::numeric, 3),
+                                              round((dhw * 12)::numeric, 3)) ORDER BY t), '[]')::text
+    FROM (SELECT time_bucket(INTERVAL '5 minutes', minute) AS t,
+                 sum(gas_space) AS space, sum(gas_dhw) AS dhw
+          FROM heat_1m
+          WHERE minute >= now() - make_interval(hours => p_hours) - INTERVAL '5 minutes'
+          GROUP BY 1 HAVING sum(gas) > 0) b
+$$;
+
 -- --- Heat loss and forecast -------------------------------------------------------------
 -- Fills heat_result:
 --   fit          heat loss coefficient H (W/K) = heat for the house / degree hours, over

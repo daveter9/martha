@@ -225,6 +225,13 @@ config-flow-API en de websocket met het root-token:
   `purge_keep_days`. De gasmeter geeft zijn stand elke 5 minuten door; per minuut zou dus vooral
   nullen geven. Een eerdere versie als tabel per minuut (SQL-sensor) is op verzoek van de
   gebruiker vervangen (2026-10-09).
+- **Gas verdeeld (afgelopen uur)**, bovenaan de pagina *Gas* (verzoek van de gebruiker,
+  2026-10-30): per melding van de gasmeter een gestapelde balk in m³/h, met het deel dat de
+  tapwaterherkenning (`heat_gas`) als verwarming telde en het deel als tapwater (ook *los*) in
+  een eigen kleur, zodat je ziet wat de herkenning kiest. Eigen kaart
+  `host/ha/www/martha-gas-split.js`; de reeks komt uit `heat_1m` via `heat_gas_recent()` als
+  attribuut `reeks` van de SQL-sensor `heat_gas_recent`. De pagina *Gas* staat ook op
+  Tapwater, zodat je er via beide dashboards komt.
 
 ### Zonnepanelen
 Eisen, beslissingen (Z1–Z10) en ontwerp: [docs/zonnepanelen.md](docs/zonnepanelen.md). In het
