@@ -194,7 +194,8 @@ def write(ws, token):
             continue
         pages = views[key]
         # Progressive disclosure: an overview, the pages as subviews that go back to it.
-        first = overview(path, title, pages, home.get(key, []), extra.get(key, []))
+        first = overview(path, title, pages, home.get(key, []), extra.get(key, []),
+                         TABLES.get(key))
         views[key] = [titled(first, (title, ""), START)] + [
             {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
              "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
@@ -275,13 +276,16 @@ def write_energy(ws, p1, solar):
         m.log(f"energy settings: {len(wanted)} sources (grid per tariff" + (", solar)" if len(wanted) > 2 else ")"))
 
 
-def overview(path, title, subviews, values, extra=()):
+def overview(path, title, subviews, values, extra=(), table=None):
     """Progressive disclosure (C25): a dashboard opens on an overview with its use now and
-    today and a button per page; the pages are subviews (no tab bar, a back arrow)."""
+    today and a button per page; the pages are subviews (no tab bar, a back arrow). With
+    'table' (the unit labels of the use and the costs row) the use is a table instead of
+    blocks (now_table)."""
     buttons = [{"type": "button", "name": v["title"], "icon": v.get("icon"), "show_state": False,
                 "tap_action": {"action": "navigate", "navigation_path": f"/{path}/{v['path']}"}}
                for v in subviews]
-    cards = [now_today(values, horizontal=True), *extra,
+    top = now_table(values, *table) if table else now_today(values, horizontal=True)
+    cards = [top, *extra,
              {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
     return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",
             "cards": [c for c in cards if c]}
@@ -318,6 +322,13 @@ def value(entity):
             "{%% else %%}{{ v }} {{ u }}{%% endif %%}") % {"e": entity}
 
 
+def number(entity):
+    """Jinja for a value without its unit: two decimals with a decimal comma, or '–'."""
+    return ("{%% set v = states('%(e)s') %%}"
+            "{%% if v | is_number %%}{{ ('%%.2f' %% (v | float)) | replace('.', ',') }}"
+            "{%% else %%}–{%% endif %%}") % {"e": entity}
+
+
 def ago(entity, attribute):
     """Jinja: how long ago a state was reported or changed, in seconds, whole minutes or
     whole hours. It re-renders every minute (now()) and with every state change."""
@@ -332,6 +343,35 @@ def ago(entity, attribute):
 BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Dag", "Vandaag", "Kosten vandaag"),
           ("Week", "Deze week", "Kosten deze week"),
           ("Maand", "Deze maand", "Kosten deze maand")]
+
+
+# Overviews that show the use as a table, with the unit labels of the use and the costs row.
+TABLES = {"electricity": ("kW / kWh", "€/u / €")}
+
+
+def now_table(values, use_unit, cost_unit):
+    """The use and costs per period as one table, the units named once per row (asked by
+    the user for Elektriciteit):
+
+                    Nu    Dag   Week   Maand
+        kW / kWh  0,17   2,68  30,87  125,23
+        €/u / €   0,05   0,74   8,33   33,81
+        12 s geleden
+    """
+    by = {n: e for e, n in values if e}
+    age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
+    cols = [(label, use, cost) for label, use, cost in BLOCKS if use in by or cost in by]
+    if not cols:
+        return None
+
+    def row(unit, i):
+        return "| " + " | ".join([unit] + [number(by[c[i]]) if c[i] in by else "–" for c in cols]) + " |"
+    lines = ["| | " + " | ".join(c[0] for c in cols) + " |",
+             "|---|" + "---:|" * len(cols),
+             row(use_unit, 1), row(cost_unit, 2)]
+    if age:
+        lines += ["", f"<small>{ago(*age)}</small>"]
+    return {"type": "markdown", "content": "\n".join(lines)}
 
 
 def now_today(values, horizontal=False, labels=None):
