@@ -253,8 +253,8 @@ De koppelcode staat op de sticker en komt niet in de repo (die is publiek, C23).
   `no_devices`; het script probeert het daarom een paar keer.
 - **Gekoppeld op 2026-10-30** (na verbinden met de wifi via de app Honeywell Home):
   `climate.tstat_34040c_lyric_t6_thermostat`.
-- Op het overzicht van **Verwarming** staat onder de tabel **één grafiek** van 24 uur
-  (verzoek van de gebruiker, 2026-10-30): links de gemeten en de ingestelde temperatuur (°C),
+- Op het overzicht van **Verwarming** staat onder de tabel **één grafiek** van de laatste
+  **2 uur** (verzoek van de gebruiker, 2026-10-30; tijdas per kwartier, tijden per halfuur): links de gemeten en de ingestelde temperatuur (°C),
   op een **tweede y-as rechts** het gas voor verwarming nu (`heat_home_space_now`, m³/h,
   gemiddelde van het laatste kwartier). HA's history-graph kan een climate-entity en een sensor
   niet combineren en heeft één as, dus is dit een **eigen kaart**

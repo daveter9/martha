@@ -5,7 +5,7 @@
 //   type: custom:martha-thermostat-graph
 //   climate: climate.x      (current_temperature and temperature attributes)
 //   gas: sensor.y           (gas for heating now, m³/h; optional)
-//   hours: 24
+//   hours: 2                (range shown; default 24)
 //
 // History comes from HA's websocket (history/history_during_period, the recorder). New
 // states are added as they arrive; the graph is redrawn every minute, so it moves on with
@@ -157,14 +157,18 @@ class MarthaThermostatGraph extends HTMLElement {
         grid += `<text x="${W - R + 6}" y="${yG(v) + 4}" fill="${COLORS.gas}">${fmt(v, gy.step < 0.1 ? 2 : 1)}</text>`;
       }
     }
-    // Time axis: whole hours, a label every 3 (24 h) or every hour (shorter ranges).
-    const every = this._config.hours > 12 ? 3 : 1;
+    // Time axis: a line per step and a label per 'label' minutes, by the range shown.
+    const h = this._config.hours;
+    const [step, label] = h <= 3 ? [15, 30] : h <= 12 ? [60, 60] : [60, 180];
     const first = new Date(t0); first.setMinutes(0, 0, 0);
-    for (let t = first.getTime() + 3600e3; t <= now; t += 3600e3) {
-      const d = new Date(t);
-      if (d.getHours() % every) continue;
-      grid += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" class="grid"/>`
-        + `<text x="${x(t)}" y="${H - B + 16}" text-anchor="middle">${String(d.getHours()).padStart(2, "0")}:00</text>`;
+    for (let t = first.getTime(); t <= now; t += step * MINUTE) {
+      if (t <= t0) continue;
+      const d = new Date(t), mins = d.getHours() * 60 + d.getMinutes();
+      grid += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" class="grid"/>`;
+      if (mins % label === 0) {
+        grid += `<text x="${x(t)}" y="${H - B + 16}" text-anchor="middle">`
+          + `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}</text>`;
+      }
     }
 
     const last = (pts) => (pts.length ? pts[pts.length - 1][1] : null);
