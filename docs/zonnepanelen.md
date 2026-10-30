@@ -80,7 +80,7 @@ Nord Pool (Z10) ────> LTSS ─> trigger ─> energy_price               
 ```
 
 Zoals bij de P1-meter zet een script `host/ha/setup_solar.py` alles neer: packages via
-martha-ha (back-up, `check_config`, health-check, rollback), helpers en dashboards via de
+martha-ha (back-up, `check_config`, health-check, en bij fouten de vorige bestanden terug), helpers en dashboards via de
 websocket. Het schema komt in `host/db/solar.sql`, idempotent, toegepast door `install.sh`
 na `timescale.sql`.
 
@@ -106,7 +106,7 @@ na `timescale.sql`.
   besluit valt pas in de laatste fase.
 
 ### Helpers (Z7)
-Gemaakt door `setup_solar.py`; ze staan in `.storage` en daarmee in de config-repo. In de UI
+Gemaakt door `setup_solar.py`; ze staan in `.storage`, en dus in elke config-back-up. In de UI
 pas je ze aan wanneer er iets verandert. LTSS bewaart elke wijziging voor altijd; daarvoor
 komen `input_number` en `input_datetime` in de include van `martha_storage.yaml`. Rekenen
 gebeurt steeds met de waarde die op dat moment gold. Een tarief achteraf corrigeren kan dus
@@ -251,11 +251,6 @@ Gebouwd en getest zonder omvormer; met de echte ShineLAN-X is het nog niet getes
   - `solar_growatt.yaml` slaagt voor `check_config`.
 - **Nog niet getest:** met de echte stick; de watchdog; Grott op de Python van Ubuntu 26.04
   (getest met 3.13); de interval-instelling.
-
-### Staging
-Staging heeft geen echte database en geen Grott. SQL-sensoren geven daar fouten bij het
-opzetten, en de health-check ziet die niet (zie *Open punten* in DESIGN.md). Wat in staging
-wel getest wordt: of de packages laden, plus de webhook-sensoren met een testbericht.
 
 ### Fasen
 Elke fase wordt apart getest op martha en gecommit. **Alles met de omvormer komt zo laat

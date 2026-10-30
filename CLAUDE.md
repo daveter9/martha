@@ -8,14 +8,14 @@
   Kijk vóór elke push (`git log origin/master..HEAD`) of er lokaal nieuwe commits zijn
   bijgekomen die niet van jou zijn; meld die eerst, in plaats van ze ongezien mee te pushen.
 - **Meteen naar productie.** Na elke aanpassing zet je die direct op martha (prod), niet
-  alleen in de repo. Dat gaat via `ssh david@martha.local` (key-login): kopieer de
-  gewijzigde bestanden met `scp`, maak eerst een back-up (`martha-ha backup`, C19), installeer
-  ze zoals `host/install.sh` doet (SQL via `docker exec ... psql`, scripts naar
-  `/usr/local/lib/martha`) en draai het setup-script van het onderdeel. sudo vraagt een
+  alleen in de repo: committen, pushen en dan `deploy.ps1` (zie *Back-ups en deploy* in
+  DESIGN.md). Dat maakt eerst een config-back-up met de commit (C19), kopieert `host/` met
+  `scp`, draait `install.sh --host-only` en de setup-scripts die bij de diff horen, en zet bij
+  een fout de config terug. Over `ssh david@martha.local` (key-login). sudo vraagt een
   wachtwoord; dat komt nooit in de repo.
 - **Taal.** Overleg en documentatie in het Nederlands; code en commentaar in scripts in het Engels.
 - **Architectuurvragen** stel je aan de gebruiker, in plaats van zelf te kiezen.
-- **Vragen stel je in de sessie, één tegelijk** (niet via Telegram). Stelt de gebruiker een
+- **Vragen stel je in de sessie, één tegelijk.** Stelt de gebruiker een
   aanpassing voor, dan bouw je die meteen, zonder eerst om bevestiging te vragen.
 - **Alleen wat gevraagd is.** Voeg in HA niets toe waar de gebruiker niet om vroeg (C24 in
   DESIGN.md); stel extra's voor in plaats van ze te bouwen.
@@ -25,7 +25,4 @@
   Linux-omgeving wilt gebruiken.
 - **Offline installeren is een harde eis.** Installeren en updaten op de doel-pc mag geen
   netwerk nodig hebben. Home Assistant mag in gebruik wel internet gebruiken, maar moet
-  ook zonder internet werken (zie C1 en C1a in DESIGN.md). Uitzondering: de agent-laag in
-  `agent/` mag online installeren (C15).
-- **Plan per fase.** De Hermes-agent wordt gebouwd in fasen (zie *Agent (Hermes)* in
-  DESIGN.md); elke fase wordt apart getest op martha en gecommit.
+  ook zonder internet werken (zie C1 en C1a in DESIGN.md).

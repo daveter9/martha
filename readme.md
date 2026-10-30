@@ -6,8 +6,7 @@ dat gebruiken; zonder internet blijft hij werken, alleen cloud-integraties niet.
 
 - Design constraints en architectuurbeslissingen staan in [DESIGN.md](DESIGN.md).
 - Werkafspraken voor Claude staan in [CLAUDE.md](CLAUDE.md).
-- Grotere beslissingen staan als ADR in [docs/adr/](docs/adr/); de inference-provider voor de
-  agent opzetten staat in [docs/phala.md](docs/phala.md).
+- Grotere beslissingen staan als ADR in [docs/adr/](docs/adr/).
 
 Er zijn twee installatieroutes:
 
@@ -24,8 +23,8 @@ Er zijn twee installatieroutes:
 | `1. download/download.ps1` | Vult `offline/` met Docker-packages, de images van Home Assistant en TimescaleDB, en LTSS met zijn wheels | Windows, **met** internet |
 | `2. usb/make-usb.ps1` | Zet de bundle (en voor route A `autoinstall.yaml`) op een USB-stick | Windows |
 | `2. ssh/install-ssh.ps1` | Route B over SSH: kopieert de bundle en draait `install.sh` op de server | Windows, LAN naar de server |
-| `host/` | `install.sh`, `docker-compose.yml`, firstboot-service, `martha-ha` en `martha-gate` (`gate/`), databaseschema (`db/`) en HA-packages (`ha/`) | Doel-pc |
-| `agent/` | Optionele Hermes-agent: [voorbereiding (Telegram, API-key)](agent/README.md) | Doel-pc, **met** internet |
+| `deploy.ps1` | Zet een gecommitte en gepushte wijziging van `host/` op martha, met eerst een back-up | Windows, LAN naar martha |
+| `host/` | `install.sh`, `deploy.sh`, `docker-compose.yml`, firstboot-service, `martha_ha.py` (back-ups), databaseschema (`db/`) en HA-packages en setup-scripts (`ha/`) | Doel-pc |
 | `offline/` | Gegenereerde bundle (signed apt-mirror, OCI-images, LTSS, wheels) | Doel-pc |
 | `docs/adr/` | Architectuurbeslissingen (ADR's) | - |
 
@@ -215,114 +214,82 @@ sudo usermod -aG docker $USER                           # optioneel: docker zond
 | `/opt/homeassistant/pydeps` | Python-pakketten voor LTSS, door `install.sh` uit de wheels gebouwd |
 | `/opt/martha` | Kopie van de bundle (alleen bij route A) |
 | `/var/lib/martha/installed` | `bundle.env` van de laatste installatie |
-| `/var/lib/martha/ha-config.git` | Versiegeschiedenis van de HA-configuratie (`martha-ha`) |
-| `/var/lib/martha/proposals` | Voorstellen van de agent en hun status (`martha-ha proposals`) |
-| `/etc/martha/ha-root.env`, `gate.env` | Tokens van `martha-ha` en `martha-gate`, gemaakt door `martha-ha setup-gate` |
-| `/var/lib/martha/backups` | Volledige back-ups: de config-map plus een `pg_dump` van de database |
+| `/var/lib/martha/deployed` | De commit van de laatste `deploy.ps1` |
+| `/etc/martha/ha-root.env` | Admin-token van de setup-scripts, gemaakt door `martha-ha token` |
+| `/var/lib/martha/backups` | Back-ups: `config-*.tar.zst` (de config-map, per deploy) en `db-*.pgdump` (de database, elke nacht) |
 
-### Versies, back-ups en rollback (`martha-ha`)
+### Admin-token voor de setup-scripts
 
-`install.sh` installeert `martha-ha`. Die houdt de HA-configuratie bij in git: alleen
-YAML-bestanden, dashboards, helpers en ruimtes. **Nooit** de database, `secrets.yaml`,
-logins of integratie-credentials. Een deploy of rollback schrijft alleen die getrackte
-bestanden, dus je historie en database blijven altijd staan.
+De setup-scripts hieronder praten met Home Assistant via een admin-token. Maak het eenmalig na
+de onboarding. Draai dit in je eigen terminal, want het vraagt om je HA-wachtwoord:
 
 ```bash
-sudo martha-ha status              # huidige versie, geschiedenis, laatste back-ups
-sudo martha-ha sync                # leg wijzigingen vast die je in de HA-UI hebt gedaan
-sudo martha-ha backup              # volledige back-up nu (ook de database, consistent)
-sudo martha-ha rollback            # draai de laatste deploy terug
-sudo martha-ha rollback --to <id>  # zet de config terug zoals hij bij versie <id> was
-sudo martha-ha restore <back-up>   # noodknop: hele back-up terug (zie hieronder)
+ssh -t david@martha.local sudo martha-ha token
 ```
 
-Elke deploy doet eerst `check_config`, maakt een back-up, schrijft de bestanden en
-herstart of herlaadt HA. Staan er daarna configfouten in de log, dan draait hij zichzelf
-automatisch terug. Een rollback is altijd een nieuwe versie; er verdwijnt nooit iets uit
-de geschiedenis.
+Het token heet `martha-root` (zichtbaar in je HA-profiel onder *Beveiliging*) en staat in
+`/etc/martha/ha-root.env`. Opnieuw draaien maakt een nieuw token en trekt het oude in.
 
-### Staging: wijzigingen eerst uitproberen
+### Een wijziging uitrollen (`deploy.ps1`)
 
-Naast productie (poort 8123) kan een tweede Home Assistant draaien: **staging**, op
-`http://martha.local:8124`. Staging zit op een afgesloten Docker-netwerk: hij kan geen
-apparaten schakelen en heeft geen internet. Je ziet er de automations, scripts, helpers en
-dashboards van een voorstel; apparaten staan er op "niet beschikbaar".
+Een aanpassing in `host/` komt op martha met `deploy.ps1` op Windows, nadat je hem hebt
+gecommit en gepusht:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1                      # wat bij de diff hoort
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -Setup setup_heat    # een setup-script erbij
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -Setup none          # geen setup-scripts
+```
+
+Het script:
+1. weigert als er niet-gecommitte of niet-gepushte wijzigingen zijn;
+2. kijkt wat er sinds de vorige deploy in `host/` veranderde, en kiest daarmee of er ook een
+   database-back-up komt en welke setup-scripts draaien (`-Setup` gaat daarboven);
+3. kopieert alleen `host\` met `scp` naar martha;
+4. maakt op martha een back-up van de config met de commit in de naam (`martha-ha backup
+   <commit>`), draait `install.sh --host-only` (host-bestanden, databaseschema, services; geen
+   apt en geen images) en de setup-scripts;
+5. zet bij een fout de config van die back-up terug.
+
+sudo vraagt één keer om je wachtwoord. Een nieuwe Home Assistant, Docker of TimescaleDB gaat
+niet via `deploy.ps1`, maar via [Updaten](#updaten-offline-beide-routes).
+
+### Back-ups en terugzetten (`martha-ha`)
+
+De back-ups staan alleen lokaal, in `/var/lib/martha/backups`, dus ze beschermen niet tegen een
+kapotte schijf.
+- **Config:** vóór elke deploy een snapshot van de hele config-map (ook `secrets.yaml` en
+  `.storage`), met de commit in de naam. Die blijven altijd bewaard.
+- **Database:** elke nacht om 03:30 een `pg_dump`, plus vóór een deploy die de database raakt.
+  Die blijven 30 dagen bewaard.
+
+Onder 5 GB vrije schijf breekt een back-up af, en daarmee de deploy.
 
 ```bash
-sudo martha-ha staging up              # staging met de huidige productieconfig
-sudo martha-ha staging test <voorstel> # check_config + staging opstarten; faalt bij configfouten
-sudo martha-ha staging down            # staging stoppen (logins en instellingen blijven bewaard)
+sudo martha-ha status                # laatste back-ups, gedeployde commit, vrije ruimte
+sudo martha-ha backup [label]        # config-back-up nu
+sudo martha-ha backup-db [label]     # database-back-up nu
+sudo martha-ha restore <commit>      # config terug zoals bij de deploy van <commit>
+sudo martha-ha restore-db <dump>     # database terug uit een db-*.pgdump
 ```
 
-Eenmalig instellen:
-1. Open `http://martha.local:8124` en doorloop de onboarding. Noem hem **Martha STAGING** en
-   gebruik gerust dezelfde gebruikersnaam; staging heeft eigen logins. Doe dit meteen: tot
-   dan kan iedereen op je netwerk die account aanmaken.
-2. In de Companion-app: *Instellingen → Companion-app → Servers → Server toevoegen*, met
-   `http://martha.local:8124`. Bovenin de app wissel je tussen Martha en Martha STAGING.
-
-Staging krijgt nooit echte geheimen: `secrets.yaml` bevat daar dummy-waarden.
-
-Wachtwoord van staging kwijt? Reset de eigen gegevens van staging (productie blijft
-ongemoeid) en doorloop de onboarding opnieuw:
-
-```bash
-sudo martha-ha staging down
-sudo mv /var/lib/martha/staging/config /var/lib/martha/staging/config.reset-$(date +%Y%m%d)
-sudo rm -f /var/lib/martha/staging/tracked
-sudo martha-ha staging up
-```
-
-`restore` zet een **hele** back-up terug, dus ook de database van dat moment. De
-huidige config-map blijft ernaast staan als `/opt/homeassistant/config.before-restore-<tijd>`,
-de huidige database als `homeassistant_before_restore_<tijd>`. Die ruim je zelf op als alles goed is:
+`restore` zet alleen de config-map terug; de huidige blijft ernaast staan als
+`/opt/homeassistant/config.before-restore-<tijd>`. `restore-db` zet alleen de database terug;
+de huidige blijft bewaard als `homeassistant_before_restore_<tijd>`. Ruim die zelf op als alles
+goed is:
 
 ```bash
 sudo rm -rf /opt/homeassistant/config.before-restore-<tijd>
 sudo docker exec timescaledb psql -U homeassistant -d postgres -c 'DROP DATABASE homeassistant_before_restore_<tijd>'
 ```
 
-### Goedkeuren op je telefoon (`martha-gate`)
-
-`martha-gate` (poort 8765) is de enige toegang van de agent tot Home Assistant. De agent leest
-productie, maar kan er niets wijzigen. Hij doet voorstellen, test ze op staging en vraagt jou om
-goedkeuring. Pas als jij op **Toepassen** drukt, deployt `martha-ha` (met `check_config`,
-back-up, health-check en automatische rollback). Ook een rollback-verzoek van de agent vraagt
-jouw goedkeuring.
-
-Eenmalig instellen, nadat productie en staging geonboard zijn en de Companion-app op productie
-is ingelogd. Draai dit in je eigen terminal, want het vraagt om je HA-wachtwoorden:
-
-```bash
-ssh -t david@martha.local sudo martha-ha setup-gate
-```
-
-Je logt in op productie en daarna op staging. Het script maakt de tokens en de niet-admin
-gebruiker **Martha gate** aan, zet `packages/martha_gate.yaml` neer (de automation die je
-Toepassen/Afwijzen doorgeeft), herstart HA en stuurt een testmelding. Opnieuw draaien kan;
-met `--rotate` krijgt de agent een nieuw token.
-
-Een voorstel komt binnen als melding **"Martha: <titel>"**:
-- **Tik** op de melding: de diff-pagina opent (`http://martha.local:8765/p/<id>`).
-- **Houd de melding lang ingedrukt** (iOS) of klap hem uit (Android) voor **Toepassen**,
-  **Afwijzen** en **Bekijken**.
-- Op iOS verdwijnt een melding zodra je erop tikt. Druk dan onderaan de diff-pagina op
-  **Stuur de melding opnieuw**. De knoppen in de oude melding werken daarna niet meer.
-
-Elke goedkeuring werkt maar één keer. Na afloop krijg je een melding met het resultaat.
-
-```bash
-sudo martha-ha proposals                    # voorstellen en hun status
-sudo journalctl -u martha-ha -u martha-gate  # wat de daemon en de gate doen
-```
-
-Haalt een rollback een helper of andere entity weg, dan blijft die als *niet beschikbaar*
-in *Instellingen → Entiteiten* staan. Verwijder hem daar.
+Een back-up van vóór 2026-10-30 (`ha-*.tar.zst`) bevat config en database samen. `restore` neemt
+daar de config uit, `restore-db` de database.
 
 ### P1-meter (slimme meter)
 
-De P1-kabel (USB) gaat in martha. Doe dit na `setup-gate`, want het script gebruikt het
-admin-token daarvan:
+De P1-kabel (USB) gaat in martha. Doe dit na `martha-ha token`, want het script gebruikt dat
+admin-token:
 
 ```bash
 ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_p1.py
@@ -331,7 +298,7 @@ ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_p1.py
 Het script maakt eerst een back-up. Daarna voegt het de DSMR-integratie toe (DSMR 5, op de enige
 USB-seriële adapter; een andere geef je op met `--port`) en zet het het update-interval op
 10 seconden (`--interval`). Ook zet het alle sensoren van de meter aan, en zet het de grafieken op de
-dashboards **Elektriciteit** (tab *Meter*, `http://martha.local:8123/huis-elektriciteit`) en **Verwarming** (tab *Gas*, `http://martha.local:8123/huis-verwarming`). Gas staat erin als lijn per 5 minuten over de laatste 24 uur, zo vaak als de meter hem doorgeeft. Opnieuw draaien kan; het
+dashboards **Elektriciteit** (pagina *Gebruik woning*, `http://martha.local:8123/huis-elektriciteit`) en **Verwarming** (tab *Gas*, `http://martha.local:8123/huis-verwarming`). Gas staat erin als lijn per 5 minuten over de laatste 24 uur, zo vaak als de meter hem doorgeeft. Opnieuw draaien kan; het
 dashboard wordt dan opnieuw geschreven. LTSS slaat alle sensoren op, en `ltss_1m` houdt per
 minuut gemiddelde, minimum, maximum en laatste waarde voor altijd vast.
 
@@ -350,7 +317,7 @@ Het script maakt eerst een back-up. Daarna:
   `packages/martha_storage.yaml`, zodat de helpers hun historie houden;
 - voegt het de Nord Pool-integratie toe (NL, EUR; dat vraagt internet, anders volgt een
   waarschuwing en draai je het later opnieuw);
-- rolt het `packages/solar.yaml` en `packages/solar_prices.yaml` uit via martha-ha;
+- zet het `packages/solar.yaml` en `packages/solar_prices.yaml` neer (met `check_config` en een health-check; bij fouten komen de vorige bestanden terug);
 - maakt het de helpers aan, met startdatum 2026-10-23 (`--start`);
 - zet het de tabs van de zonnepanelen op het dashboard **Elektriciteit** (`http://martha.local:8123/huis-elektriciteit`).
 
@@ -384,8 +351,8 @@ blijven binnenkomen.
    ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_solar.py --inverter
    ```
 
-   Dit voegt een webhook-secret toe aan `secrets.yaml`, rolt `packages/solar_growatt.yaml`
-   uit, schrijft `/etc/martha/grott.ini`, start `martha-grottserver` en `martha-grott`, en
+   Dit voegt een webhook-secret toe aan `secrets.yaml`, zet `packages/solar_growatt.yaml`
+   neer, schrijft `/etc/martha/grott.ini`, start `martha-grottserver` en `martha-grott`, en
    voegt het tabblad **Omvormer** toe aan het dashboard.
 4. Zet in de webinterface van de ShineLAN-X (op het IP-adres van de stick) het
    **serveradres** op het IP-adres van martha, poort 5279.
@@ -405,7 +372,7 @@ ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_heat.py
 
 Het script maakt eerst een back-up. Daarna:
 - legt het de gasmeter van de P1 vast;
-- rolt het `packages/heat.yaml` uit via martha-ha (buitentemperatuur uit de weer-entity, de
+- zet het `packages/heat.yaml` neer (buitentemperatuur uit de weer-entity, de
   gasmarktprijs van EnergyZero en de SQL-sensoren);
 - maakt het de helpers `input_number.heat_*` aan, met standaardwaarden, en ruimt helpers en
   sensoren op die niet meer gebruikt worden;
@@ -425,7 +392,8 @@ kosten, aanvoertemperatuur, gasverbruik van vorig jaar) en vul de stroomtarieven
 ## Updaten (offline, beide routes)
 
 1. Draai op Windows `1. download\download.ps1` ([stap 1](#stap-1-bundle-verversen-optioneel-met-internet)).
-2. Maak een back-up van de config en de database: `sudo martha-ha backup pre-update`.
+2. Maak een back-up van de config en de database: `sudo martha-ha backup pre-update` en
+   `sudo martha-ha backup-db pre-update`.
 3. Installeer opnieuw zoals in [B2 (SSH)](#b2-installeren-via-ssh-vanaf-windows) of
    [B3 (USB)](#b3-installeren-via-usb-stick). Dat werkt ook voor een pc die met route A is geïnstalleerd.
 

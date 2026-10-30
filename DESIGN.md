@@ -24,17 +24,13 @@ internet gebruiken als dat er is, maar hij moet ook zonder internet blijven werk
 | C12 | De Home Assistant-layers zijn **zstd**-gecomprimeerd. | Docker ≥ 23 nodig; docker.io 29 voldoet. |
 | C13 | Op de Windows-machine is **Git for Windows** nodig (met Git LFS). | `make-usb.ps1` gebruikt de `openssl.exe` daaruit voor de wachtwoord-hash. |
 | C14 | Werkafspraken en beslissingen staan **in de repo**, niet in een lokaal geheugen. | `CLAUDE.md` (werkafspraken) en dit bestand. |
-| C15 | De **agent-laag** (Hermes in NemoClaw) is optioneel en **mag online installeren**. | C1 blijft gelden voor de HA-laag (`host/`, `offline/`), inclusief config-repo, back-up, staging en martha-gate. HA werkt volledig zonder agent. De agent-laag staat apart in `agent/`. |
-| C16 | De agent heeft **nooit schrijfrechten op productie-HA**. | Geen productie-token, geen Docker-socket, geen host-shell in de sandbox. Alleen martha-gate (door ons geschreven) wijzigt productie. |
-| C17 | Een wijziging gaat pas live na een **geslaagde test op staging en goedkeuring in de HA Companion-app**. | De goedkeuring loopt via productie-HA met een eenmalige nonce die de agent nooit ziet. Ook een rollback-verzoek van de agent vraagt goedkeuring. |
-| C18 | Deploy en rollback raken **de database en niet-getrackte bestanden nooit**. | Alleen bestanden op de allowlist van de config-repo worden geschreven. Rollback is een revert-commit; de git-historie wordt nooit herschreven. |
-| C19 | **Vóór elke deploy een volledige back-up**, en niets verdwijnt zonder retentiebeleid. | `martha-ha backup` maakt een consistente kopie van de hele config-map plus een `pg_dump` van de database (die staat sinds ADR-001 in PostgreSQL, niet meer in de config-map). Te weinig vrije schijf breekt de deploy af. |
-| C20 | Prompts van de agent gaan **alleen naar een attested TEE-endpoint, nooit via een router**. | Phala direct op `inference.phala.com` of `tee.redpill.ai`, nooit `api.redpill.ai` of OpenRouter (zie [ADR-002](docs/adr/ADR-002-inference-provider.md)). Voorlopig zonder lokale attestatieproxy: de gateway dwingt de verificatie van de model-enclave af (getest), en attestatie en receipts worden periodiek met de hand gecontroleerd (ADR-002, *Aanvulling 2026-10-07*). |
+| C18 | Een deploy **raakt de database nooit, behalve via het idempotente schema**. | `deploy.ps1` schrijft host-bestanden en de setup-scripts schrijven hun packages, helpers en dashboards; de data blijft staan. Raakt een deploy `host/db/` of een setup-script, dan komt er eerst ook een `pg_dump`. Config en database worden los van elkaar teruggezet (`martha-ha restore`, `restore-db`). |
+| C19 | **Vóór elke deploy een back-up van de config, gekoppeld aan de commit**, en niets verdwijnt zonder retentiebeleid (keuze van de gebruiker, 2026-10-30). | `martha-ha backup <commit>` maakt een snapshot van de hele config-map; `martha-ha restore <commit>` zet die terug. Config-back-ups blijven **altijd**; database-dumps (elke nacht, plus vóór een deploy die de database raakt) **30 dagen**. Onder 5 GB vrij breekt een back-up af, en daarmee de deploy. De back-ups staan **alleen lokaal** op martha's eigen schijf: ze beschermen **niet tegen schijfuitval**. |
 | C21 | **HA installeert in gebruik geen Python-pakketten van internet.** | Requirements van custom integrations die niet in het HA-image zitten, staan als wheels in de bundle (`offline/wheels`). `install.sh` installeert ze met de `uv` van het image zelf, zonder netwerk, in `/opt/homeassistant/pydeps` (via `PYTHONPATH` in de container). Geen HACS. |
 | C22 | **Geen SQLite meer voor de Recorder.** | De Recorder gebruikt PostgreSQL. `install.sh` hernoemt een oude `home-assistant_v2.db` naar `*.retired` en breekt af als HA toch een SQLite-database aanmaakt. |
 | C23 | **De repo is publiek: code van anderen zonder licentie komt er niet in.** | Zo'n code (nu: Grott) haalt `download.ps1` alleen naar de lokale bundle, en staat in `.gitignore`. Code met een licentie (LTSS, MIT) mag wel in de repo. |
 | C24 | **In HA staat alleen wat de gebruiker bewust heeft toegevoegd** (keuze van de gebruiker, 2026-10-19). | Geen `default_config`: `configuration.yaml` noemt alleen `frontend`, `energy`, `history`, `logbook`, `mobile_app` en `webhook`. Geen ontdekking (zeroconf, ssdp, dhcp, usb, Bluetooth), cloud, spraak, media, Sun of go2rtc. Integraties uit de onboarding (Shopping list, Radio Browser, Google Translate), de via het netwerk gevonden Sonos One, het Kaart-dashboard, de voorbeeld-blueprints (lege mappen met `.keep`, anders zet HA ze terug) en de standaardruimtes zijn verwijderd. Een integratie die een gevraagde functie nodig heeft (Met.no voor de buitentemperatuur, Nord Pool voor de marktprijs) blijft. |
-| C25 | **Dashboards per domein, niet per bron** (keuze van de gebruiker, 2026-10-19). | Drie dashboards: **Elektriciteit** (`/huis-elektriciteit`: de stroommeter en de tabs van de zonnepanelen), **Verwarming** (`/huis-verwarming`: gas en de vergelijking met de warmtepomp) en **Tapwater** (`/huis-tapwater`: gas voor warm water en de instellingen van de herkenning). HA eist een streepje in de URL. `host/ha/dashboards.py` bouwt ze alle drie opnieuw uit wat geïnstalleerd is; elk setup-script roept het aan, en de kaarten staan in `views()` naast de sensoren in elk script. Een nieuw onderdeel krijgt een plek in een domein, niet een eigen dashboard. **Progressive disclosure** (verzoek van de gebruiker): geen tabbalk; een dashboard met meer pagina's opent op een *overzicht* (titel, verbruik nu en vandaag, een knop per pagina) en de pagina's zijn subviews met een terugpijl, net zoals Thuis naar de dashboards leidt. Ook een dashboard met één pagina (Tapwater) opent op een overzicht. Op Thuis (drie kolommen: knop met daaronder *Nu* en *Vandaag*, elk met verbruik en kosten onder elkaar, bv. 0,17 kW / 0,05€/u) en op elk overzicht (dezelfde blokken naast elkaar; onderaan het blok *Nu* klein hoe lang de meting erachter geleden is: stroom = laatste telegram, gas = laatste verandering van de gasmeter, want die verandert alleen bij verbruik) staan het verbruik **en de kosten** nu en vandaag (`heat_home()`, contractprijzen zonder vaste kosten; stroom nu = vermogen x tarief van nu, in €/u). De blokken heten *Nu*, *Dag*, *Week* en *Maand* (verzoek van de gebruiker, 2026-10-30); op het overzicht van Elektriciteit staan ze als **één tabel** met de periodes als kolommen, de eenheden één keer vooraan de rij (`kWh`, `€`) en linksboven hoe lang de meting achter *Nu* geleden is, gecentreerd (`now_table()`, `TABLES`); Verwarming en Tapwater net zo, met `m³` en `€` en alleen *Nu* en *Dag*; de eerste sectie van een pagina heet *Deze dag*. De overzichten tonen daarnaast ook *Week* (vanaf maandag) en *Maand* (verzoek van de gebruiker, 2026-10-30; eerst alleen Elektriciteit, daarna ook Verwarming en Tapwater): stroom = meterstanden nu min aan het begin van de periode, met de tarieven van nu; gas = de som van de dagen in `heat_1d`; Thuis blijft bij *Nu* en *Dag*. Onder de blokken van Elektriciteit staat de stroom nu, waar vandaan en waar heen, in een **eigen kaart** (`host/ha/www/martha-power-flow.js`, keuze van de gebruiker, 2026-10-30): HA's power-sankey toont altijd *Niet getraceerd verbruik* en heeft geen optie om dat te verbergen, en kantelt op een telefoon naar boven-naar-beneden. De eigen kaart toont alleen net en zonnepanelen → woning en teruglevering, **altijd van links naar rechts** (ook op een telefoon). `install.sh` zet hem in `/config/www/martha/` (buiten de config-repo, zoals `martha_storage.yaml`); `dashboards.write_resource()` registreert hem als Lovelace-resource met een hash in de URL, zodat browsers een nieuwe versie laden. HA serveert `/local` alleen als `www` bestond bij het starten: de eerste keer is een herstart nodig. De titel van Thuis is de locatienaam van HA, zodat het adres niet in de repo staat. De bovenbalk van HA blijft staan (keuze van de gebruiker, 2026-10-19): verbergen kan alleen met de plugin kiosk-mode, en dat is niet gewenst. De pagina **Gebruik woning** (vervangt *Meter*, verzoek van de gebruiker, 2026-10-30) toont alleen het vermogen over 24 uur en per uur, dag, week, maand en jaar een grafiek van het gebruik en van de kosten; het gebruik is één balk per periode met dal en normaal gestapeld (statistics-graph `bar-stack`). Deze pagina wijkt af van de vaste indeling hieronder: geen totalen en geen *Details*. `write_energy()` vult nog steeds HA's Energie-instellingen: het net per tarief met het vermogen nu, en de zonnepanelen zodra de omvormer gekoppeld is. Naast elke paginatitel staat een terugknop (naar het overzicht, of vanaf een overzicht of een dashboard met één pagina naar Thuis); daarvoor zijn alle pagina's sections-views (`titled()`). **Vaste indeling** (verzoek van de gebruiker): elke pagina begint met een titel die zegt wat erop staat (`HEADINGS`); een pagina met gebruik en kosten volgt `dashboards.page()`: *Vandaag* (eerst wat er nu gebeurt), dan *Deze week*, *Deze maand*, *Dit jaar* (hoe verder naar beneden, hoe langer het bereik), elk met de totalen van die kalenderperiode en een grafiek, en *Details* onderaan. Een periodekiezer is er niet meer. **Startscherm** (`/lovelace`, het standaardpaneel voor iedereen via `default_panel`; sinds HA 2026 telt dat alleen als `lovelace` een eigen dashboardvermelding is, die HA bij een herstart maakt uit de oude standaardconfig, dus de eerste keer herstart `write_start` HA): per dashboard een knop met daaronder het verbruik **nu** en **vandaag** (`heat_home()`: stroom = meterstanden nu min middernacht; gas nu = gemiddelde van het afgelopen kwartier in m³/u, omdat de gasmeter per 5 minuten meldt; gas vandaag uit `heat_1d`); HA's gegenereerde Thuis-scherm (weer, apparaten) is niet meer de start. **Zijbalk** van de eigenaar: Energie, Activiteit, Geschiedenis, Media en Thuis verborgen (`hiddenPanels`; per gebruiker in HA). Die integraties blijven geladen: de grafieken hebben `history` nodig. |
+| C25 | **Dashboards per domein, niet per bron** (keuze van de gebruiker, 2026-10-19). | Drie dashboards: **Elektriciteit** (`/huis-elektriciteit`: de stroommeter en de tabs van de zonnepanelen), **Verwarming** (`/huis-verwarming`: gas en de vergelijking met de warmtepomp) en **Tapwater** (`/huis-tapwater`: gas voor warm water en de instellingen van de herkenning). HA eist een streepje in de URL. `host/ha/dashboards.py` bouwt ze alle drie opnieuw uit wat geïnstalleerd is; elk setup-script roept het aan, en de kaarten staan in `views()` naast de sensoren in elk script. Een nieuw onderdeel krijgt een plek in een domein, niet een eigen dashboard. **Progressive disclosure** (verzoek van de gebruiker): geen tabbalk; een dashboard met meer pagina's opent op een *overzicht* (titel, verbruik nu en vandaag, een knop per pagina) en de pagina's zijn subviews met een terugpijl, net zoals Thuis naar de dashboards leidt. Ook een dashboard met één pagina (Tapwater) opent op een overzicht. Op Thuis (drie kolommen: knop met daaronder *Nu* en *Vandaag*, elk met verbruik en kosten onder elkaar, bv. 0,17 kW / 0,05€/u) en op elk overzicht (dezelfde blokken naast elkaar; onderaan het blok *Nu* klein hoe lang de meting erachter geleden is: stroom = laatste telegram, gas = laatste verandering van de gasmeter, want die verandert alleen bij verbruik) staan het verbruik **en de kosten** nu en vandaag (`heat_home()`, contractprijzen zonder vaste kosten; stroom nu = vermogen x tarief van nu, in €/u). De blokken heten *Nu*, *Dag*, *Week* en *Maand* (verzoek van de gebruiker, 2026-10-30); op het overzicht van Elektriciteit staan ze als **één tabel** met de periodes als kolommen, de eenheden één keer vooraan de rij (`kWh`, `€`) en linksboven hoe lang de meting achter *Nu* geleden is, gecentreerd (`now_table()`, `TABLES`); Verwarming en Tapwater net zo, met `m³` en `€` en alleen *Nu* en *Dag*; de eerste sectie van een pagina heet *Deze dag*. De overzichten tonen daarnaast ook *Week* (vanaf maandag) en *Maand* (verzoek van de gebruiker, 2026-10-30; eerst alleen Elektriciteit, daarna ook Verwarming en Tapwater): stroom = meterstanden nu min aan het begin van de periode, met de tarieven van nu; gas = de som van de dagen in `heat_1d`; Thuis blijft bij *Nu* en *Dag*. Onder de blokken van Elektriciteit staat de stroom nu, waar vandaan en waar heen, in een **eigen kaart** (`host/ha/www/martha-power-flow.js`, keuze van de gebruiker, 2026-10-30): HA's power-sankey toont altijd *Niet getraceerd verbruik* en heeft geen optie om dat te verbergen, en kantelt op een telefoon naar boven-naar-beneden. De eigen kaart toont alleen net en zonnepanelen → woning en teruglevering, **altijd van links naar rechts** (ook op een telefoon). `install.sh` zet hem in `/config/www/martha/`; `dashboards.write_resource()` registreert hem als Lovelace-resource met een hash in de URL, zodat browsers een nieuwe versie laden. HA serveert `/local` alleen als `www` bestond bij het starten: de eerste keer is een herstart nodig. De titel van Thuis is de locatienaam van HA, zodat het adres niet in de repo staat. De bovenbalk van HA blijft staan (keuze van de gebruiker, 2026-10-19): verbergen kan alleen met de plugin kiosk-mode, en dat is niet gewenst. De pagina **Gebruik woning** (vervangt *Meter*, verzoek van de gebruiker, 2026-10-30) toont alleen het vermogen over 24 uur en per uur, dag, week, maand en jaar een grafiek van het gebruik en van de kosten; het gebruik is één balk per periode met dal en normaal gestapeld (statistics-graph `bar-stack`). Deze pagina wijkt af van de vaste indeling hieronder: geen totalen en geen *Details*. `write_energy()` vult nog steeds HA's Energie-instellingen: het net per tarief met het vermogen nu, en de zonnepanelen zodra de omvormer gekoppeld is. Naast elke paginatitel staat een terugknop (naar het overzicht, of vanaf een overzicht of een dashboard met één pagina naar Thuis); daarvoor zijn alle pagina's sections-views (`titled()`). **Vaste indeling** (verzoek van de gebruiker): elke pagina begint met een titel die zegt wat erop staat (`HEADINGS`); een pagina met gebruik en kosten volgt `dashboards.page()`: *Vandaag* (eerst wat er nu gebeurt), dan *Deze week*, *Deze maand*, *Dit jaar* (hoe verder naar beneden, hoe langer het bereik), elk met de totalen van die kalenderperiode en een grafiek, en *Details* onderaan. Een periodekiezer is er niet meer. **Startscherm** (`/lovelace`, het standaardpaneel voor iedereen via `default_panel`; sinds HA 2026 telt dat alleen als `lovelace` een eigen dashboardvermelding is, die HA bij een herstart maakt uit de oude standaardconfig, dus de eerste keer herstart `write_start` HA): per dashboard een knop met daaronder het verbruik **nu** en **vandaag** (`heat_home()`: stroom = meterstanden nu min middernacht; gas nu = gemiddelde van het afgelopen kwartier in m³/u, omdat de gasmeter per 5 minuten meldt; gas vandaag uit `heat_1d`); HA's gegenereerde Thuis-scherm (weer, apparaten) is niet meer de start. **Zijbalk** van de eigenaar: Energie, Activiteit, Geschiedenis, Media en Thuis verborgen (`hiddenPanels`; per gebruiker in HA). Die integraties blijven geladen: de grafieken hebben `history` nodig. |
 | C26 | **Gas en kosten apart voor verwarming en tapwater** (verzoek van de gebruiker, 2026-10-19). | Per minuut staat het tapwaterdeel in `heat_1m` (`cv_cost_dhw`, `wp_cost_dhw`, ook tegen marktprijs, en `wp_kwh_dhw`); verwarming is het totaal min tapwater. CV-ketel: het gas voor warm water maal de gasprijs. Warmtepomp: warm water / COP bij de tapwatertemperatuur; het zonne-overschot en dus de stroomkosten worden naar verhouding van de kWh verdeeld. **Vaste kosten** (gasaansluiting, onderhoud) horen bij geen van beide: totaal = verwarming + tapwater + vast. Zichtbaar op Verwarming → *Kosten*, op Tapwater, per dag (`heat_split_days`, laatste 14 dagen) en per jaar (`year_split`). De nieuwe sensoren hebben pas statistieken vanaf 2026-10-19; de dagtabel rekent uit `heat_1d` en toont ook de dagen ervoor. |
 
 ## Architectuurbeslissingen
@@ -198,7 +194,7 @@ HA leest en stuurt alle apparaten via zijn integraties. Recorder en LTSS schrijv
 ### P1-meter (DSMR)
 De slimme meter is een Landis+Gyr E360 (DSMR 5.0, `/XMX5LGF…`). Hij stuurt elke seconde een
 telegram via een FTDI-P1-kabel (`/dev/ttyUSB0`). HA leest hem met de ingebouwde DSMR-integratie.
-Die wordt neergezet door `host/ha/setup_p1.py` (handmatig, als root, na `setup-gate`), via de
+Die wordt neergezet door `host/ha/setup_p1.py` (handmatig, als root, na `martha-ha token`), via de
 config-flow-API en de websocket met het root-token:
 - **Update-interval van 10 s.** De meter stuurt elke seconde, maar elke seconde is te veel voor
   Recorder en LTSS. Met 10 s heeft `ltss_1m` tot 6 samples per minuut voor gemiddelde, minimum
@@ -220,7 +216,7 @@ config-flow-API en de websocket met het root-token:
   adapter. *Bekend risico:* komt er een tweede USB-seriële stick bij (Zigbee), dan kan de
   nummering wisselen. Dan is een vast pad nodig, bijvoorbeeld een udev-symlink plus een
   mount van `/dev/serial`.
-- **Dashboard** (C25: pagina *Gebruik woning* op Elektriciteit, pagina *Gas* op Verwarming; storage-modus, dus in de config-repo via `.storage/lovelace.*`):
+- **Dashboard** (C25: pagina *Gebruik woning* op Elektriciteit, pagina *Gas* op Verwarming; storage-modus, in `.storage/lovelace.*`):
   history-graphs (24 uur, uit de Recorder) en statistics-graphs (uur tot en met jaar, uit de
   long-term statistics). Spanning, stroom, fasen en storingen staan niet meer op een pagina. Het minuutdetail van langer dan 10 dagen geleden staat alleen in
   TimescaleDB; HA zelf toont dat niet.
@@ -229,8 +225,6 @@ config-flow-API en de websocket met het root-token:
   `purge_keep_days`. De gasmeter geeft zijn stand elke 5 minuten door; per minuut zou dus vooral
   nullen geven. Een eerdere versie als tabel per minuut (SQL-sensor) is op verzoek van de
   gebruiker vervangen (2026-10-09).
-- Staging kan de meter niet lezen (geen USB, internal netwerk). Op verzoek van de gebruiker
-  staat dit daarom direct in productie (2026-10-08).
 
 ### Zonnepanelen
 Eisen, beslissingen (Z1–Z10) en ontwerp: [docs/zonnepanelen.md](docs/zonnepanelen.md). In het
@@ -255,148 +249,67 @@ berekening van één minuut met zijn getallen en elke aanname met hoe hij te ver
 De jaarprognose gebruikt het gemeten warmteverlies en een referentiejaar (2019, Open-Meteo,
 CC BY 4.0; data met licentie mag in de repo, C23).
 
-### Agent (Hermes): HA configureren zonder schrijfrechten op productie
-Doel: een Hermes-agent (Nous Research) die HA echt configureert (automations, scripts,
-helpers, dashboards, packages), via Telegram met de gebruiker praat en zelf verbetertips stuurt.
-
-```
-Telefoon (Telegram)  <->  Hermes in OpenShell-sandbox (NemoClaw)
-                              | alleen HTTP naar martha-gate (L7-policy)
-                              v
-                         martha-gate (host, systemd, eigen user)
-                           |-- read-only proxy naar productie-HA (alleen GET)
-                           |-- config-repo (voorstellen = git-patches)
-                           |-- staging-HA (internal Docker-netwerk)
-                           '-- deploy/rollback na goedkeuring
-Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command--> martha-gate
-```
-
-- **Isolatie:** NVIDIA NemoClaw met OpenShell. Netwerk deny-by-default met L7-inspectie,
-  Landlock en seccomp. De inference-key en het Telegram-token beheert OpenShell; de agent
-  praat met `inference.local`. De gebruiker levert de key zelf aan bij `install-agent.sh`.
-  Ubuntu 26.04 is bij NVIDIA "tested with limitations". De `daemon.json`-fix
-  (`default-cgroupns-mode: host`) is niet meer nodig: OpenShell zet host-cgroupns op zijn eigen
-  container (NemoClaw v0.0.124, `preflight.ts`), dus Docker voor HA blijft ongewijzigd.
-- **NemoClaw draait als de admin-gebruiker `david`** (keuze van de gebruiker, 2026-10-07):
-  NemoClaw installeert per gebruiker (Node via nvm, CLI's in `~/.local/bin`, de OpenShell-gateway
-  als systemd-user-service). `david` zit daarvoor in de groep `docker` (≈ root) en heeft
-  lingering aan, zodat de gateway na een reboot start. De agent zelf zit in de sandbox en
-  heeft geen Docker-toegang.
-- **Inference:** GLM 5.3 Flash (`z-ai/glm-5.3-flash`) rechtstreeks bij Phala Confidential AI,
-  voorlopig zonder lokale attestatieproxy (ADR-002, *Aanvulling 2026-10-07*). In NemoClaw is
-  dat de provider `custom` met `NEMOCLAW_ENDPOINT_URL`. Beslissing en onderbouwing in
-  [ADR-002](docs/adr/ADR-002-inference-provider.md), opzetten in [docs/phala.md](docs/phala.md).
-- **Geheugen:** martha heeft 30 GB RAM en 8 GB swap (`/swap.img`, gecontroleerd op 2026-10-07).
-  Dat ruim boven het NemoClaw-minimum van 8 GB, dus `install-agent.sh` hoeft geen swap aan te
-  maken. Staging draait toch alleen zolang er een voorstel openstaat.
-- **Config-repo** (`/var/lib/martha/ha-config.git`) met een allowlist: `configuration.yaml`,
-  `packages/`, `automations.yaml`, `scripts.yaml`, `scenes.yaml`, `blueprints/`, YAML-dashboards,
-  en uit `.storage` alleen dashboards, helpers en de area-, floor- en label-registry.
-  Nooit getrackt: `secrets.yaml`, de database, `.storage/auth*`, `http*`,
-  `core.config_entries` (credentials), `core.restore_state`, logs.
-  Vóór elke deploy commit `martha-ha sync` de productiestaat, zodat wijzigingen via de UI nooit verloren gaan.
-  Ook `custom_components/` wordt niet getrackt: de agent kan zo geen code in productie zetten.
-- **`martha-ha`** (`host/gate/martha_ha.py`, Python-stdlib, door `install.sh` geïnstalleerd):
-  - Een deploy wordt één commit op `main`. git doet de merge met `merge-tree --write-tree`,
-    zonder werkkopie; een conflict met de productiestaat breekt af voordat er iets verandert.
-  - Bestanden schrijven gaat met `read-tree -u -m`, dus alleen de getrackte bestanden.
-    Hangt er `.storage` aan de wijziging, dan stopt HA eerst, omdat HA `.storage` bij het
-    afsluiten vanuit het geheugen overschrijft.
-  - `check_config` draait in een wegwerpcontainer (`--network none`) op een kopie. Dat
-    vangt niet alles: een ongeldige automation-trigger meldt HA pas bij het opstarten
-    ("has been disabled"). Daarom leest de health-check na de deploy de log, en volgt bij
-    zulke meldingen een automatische rollback (getest op martha, 2026-10-06).
-  - Back-ups zijn `tar.zst` (Python 3.14 `tarfile`): de config-map, SQLite-databases via de
-    online backup-API, en een `pg_dump` (custom format) van PostgreSQL als
-    `database/homeassistant.pgdump`. `restore` zet de oude database opzij onder een andere naam
-    (`homeassistant_before_restore_<tijd>`) en laadt de dump in een nieuwe database, met
-    `timescaledb_pre_restore()`/`post_restore()` (getest op martha, 2026-10-07: hypertables,
-    continuous aggregates en policies komen terug). Retentie: de nieuwste 30 en alles van de laatste 7 dagen; onder 5 GB vrij breekt hij af.
-- **Staging-HA:** hetzelfde image, naast productie, op een `internal` Docker-netwerk (geen LAN,
-  geen internet), niet privileged, database in het geheugen, dummy-secrets. Op het LAN
-  bereikbaar via `http://martha.local:8124` (TCP-forward door martha-gate), met een eigen
-  login, zodat de gebruiker in de Companion-app tussen staging en productie kan wisselen.
-  Staging bewijst dat de config laadt; echte apparaten testen kan alleen in productie, en
-  daarvoor is er de rollback.
-  - Vast adres `172.30.53.10` op netwerk `martha-staging` (`172.30.53.0/24`, `internal`).
-    Een internal netwerk kan geen poort publiceren, maar de host bereikt de container wel.
-    `martha-staging-proxy.service` (DynamicUser, geen Docker-toegang) forwardt daarom LAN-poort
-    8124 naar staging. Getest op martha (2026-10-06): de host bereikt staging; staging bereikt
-    de router, het internet en productie-HA niet.
-  - Staging krijgt geen registries of `config_entries` van productie, alleen de getrackte
-    bestanden. Daarmee zijn er ook geen credentials in staging. Entities uit productie bestaan
-    in staging dus niet; dashboards tonen ze als "niet beschikbaar".
-  - `martha-ha staging test` = `check_config` plus staging opstarten met de logcontrole van de
-    health-check. Een ongeldige automation-trigger wordt zo vóór productie afgekeurd.
-  - `packages/martha_storage.yaml` (ADR-001) staat **niet** in de config-repo (uitgezonderd in
-    de allowlist): hij wijst naar de productiedatabase en laadt LTSS, en dat blijft van
-    `install.sh`. Staging en de agent krijgen hem dus nooit; staging houdt zijn eigen
-    Recorder-database. `check_config` krijgt `/opt/homeassistant/pydeps` mee, zodat LTSS
-    (in de kopie van productie) te importeren is.
-- **martha-gate** (fase 3, getest op martha op 2026-10-07): twee processen, zodat het deel dat
-  met de agent praat geen root heeft.
-  - `martha-ha serve` (`martha-ha.service`, root) luistert op `/run/martha/ha.sock`
-    (`root:martha-gate 0660`), met JSON per regel. Commando's: `create`, `list`, `show`, `test`,
-    `submit`, `withdraw`, `resend`, `approval`, `rollback_request`, `logs`, `template`, `files`,
-    `file` en `history`. Een staging-test en een deploy draaien in een workerthread op de
-    bestaande flock (`locked(wait=True)`); de agent vraagt de status op. Bij een herstart worden
-    `testing` en `approved` op `failed` en `failed-deploy` gezet.
-  - `martha_gate.py` (`martha-gate.service`, user `martha-gate`, `ProtectSystem=strict`,
-    `NoNewPrivileges`, zonder capabilities) luistert op poort 8765. De endpoints staan in de
-    docstring. Productie is voor de agent alleen-lezen: `GET` op states, config, services,
-    history, logbook en events, met het token van de niet-admin HA-gebruiker "Martha gate"
-    (`local_only`). Elke andere methode op `/ha/` geeft 403, en `.`- en `..`-segmenten
-    (ook gecodeerd) geven 400. Staging is volledig bereikbaar, met een admin-token van staging.
-  - **De gate leest de config-repo via de daemon** (`files`, `file`, `history`), niet zelf.
-    De repo blijft 0700 root; er zijn geen groepsrechten of `safe.directory` nodig (keuze van
-    de gebruiker, 2026-10-07).
-  - **`/api/template` vereist in HA een admin.** De gate laat templates daarom renderen door
-    de daemon, met het root-token. Een template kan niets schakelen of schrijven.
-  - **Voorstellen:** JSON `{title, description, files: {pad: inhoud|null}}`, met hele bestanden.
-    De daemon maakt de commit met een tijdelijke `GIT_INDEX_FILE` op `refs/proposals/<id>`
-    (id = 20 hex-tekens) en zet de metadata in `/var/lib/martha/proposals/<id>.json` (0600).
-    Geweigerd worden:
-    - een pad dat `info/exclude` negeert (`git check-ignore --no-index`), en
-      `secrets.yaml` en `packages/martha_gate.yaml`;
-    - meer dan 50 bestanden, of een bestand groter dan 512 KB;
-    - ongeldige JSON in `.storage`;
-    - inhoud met `MARTHA_APPROVE`, `MARTHA_REJECT`, `martha_gate`, `call_service` of
-      `secrets.yaml`. Dat is verdediging in de diepte: een automation in productie zou een
-      `call_service`-event van de goedkeuringsmelding kunnen lezen, en daarin staat de nonce.
-      Het echte vangnet is dat de gebruiker de diff ziet vóór Toepassen.
-  - **Goedkeuring:** `submit` maakt een nonce (`token_hex(16)`; alleen de sha256 wordt bewaard,
-    en de agent ziet ook die niet). Daarna volgt een melding via `notify.<NOTIFY_SERVICE>` met de
-    acties `MARTHA_APPROVE_<id>_<nonce>`, `MARTHA_REJECT_<id>_<nonce>` en een URI naar
-    `http://<host>.local:8765/p/<id>`. `packages/martha_gate.yaml` (template in `host/ha/packages/`)
-    vangt `mobile_app_notification_action` op en stuurt de actie via `rest_command` naar
-    `/approval`, met `X-Martha-Secret`. De daemon controleert de nonce (`hmac.compare_digest`),
-    wist hem (één keer bruikbaar) en deployt, of draait bij een rollback-verzoek
-    `rollback(<deploy>)`. Daarna volgt een resultaatmelding met dezelfde `tag`.
-  - **`packages/martha_gate.yaml` staat buiten de config-repo** (in de allowlist uitgezonderd,
-    net als `martha_storage.yaml`). `setup-gate` schrijft hem zelf, na `check_config`, gevolgd
-    door een herstart. Zo kan geen deploy of `rollback --to` de goedkeuring weghalen (keuze
-    van de gebruiker, 2026-10-07).
-  - **iOS:** een tik op een melding of een knop laat de melding verdwijnen. Een gewone tik opent
-    daarom de diff-pagina (`url`, en `clickAction` voor Android); de knoppen staan onder lang
-    indrukken. Op de diff-pagina staat "Stuur de melding opnieuw" (`POST /p/<id>/resend`, zonder
-    login). Die maakt een nieuwe nonce, waarmee de oude knoppen ongeldig worden, en kan hooguit
-    eens per 30 seconden. Hij kan niets goedkeuren: hij stuurt alleen een melding naar de telefoon
-    van de gebruiker.
-  - **Staging** stopt na een goedkeuring of afwijzing, als er geen voorstel meer openstaat (RAM).
-  - Na een rollback van een YAML-entity blijft die als `unavailable` (`restored: true`) in het
-    entity-register staan. Dat is gewoon HA-gedrag; verwijderen kan in de UI.
-  - **`martha-ha setup-gate`** (interactief) logt in via de login-flow (`/auth/login_flow`,
-    `/auth/token`) en maakt via een minimale stdlib-websocketclient:
-    - het long-lived token `martha-root` (`/etc/martha/ha-root.env`, 0600, samen met
-      `NOTIFY_SERVICE`);
-    - de gebruiker "Martha gate" met een eigen token;
-    - een staging-token.
-    Die laatste twee komen samen met `AGENT_TOKEN` en `APPROVAL_SECRET` in `/etc/martha/gate.env`
-    (`0640 root:martha-gate`). Een nieuwe run houdt `AGENT_TOKEN` en `APPROVAL_SECRET`, tenzij je
-    `--rotate` meegeeft; de HA-tokens en de gebruiker worden steeds opnieuw gemaakt.
-    `activate()` leest `HA_TOKEN` uit `ha-root.env`.
-- **Nieuwe integraties** (config flows met credentials) vallen buiten de agent: die stelt hij
-  voor en legt hij uit, de gebruiker voegt ze toe in de UI.
+### Back-ups en deploy (alleen productie)
+De agent-laag (Hermes in NemoClaw, martha-gate, staging en goedkeuren in de Companion-app) is
+op 2026-10-30 geschrapt (keuze van de gebruiker); de git-historie bewaart het ontwerp. Er is
+alleen productie.
+- **Een deploy gaat met `deploy.ps1`** op Windows (PowerShell 5.1); martha doet geen `git pull`
+  (C1). Het script:
+  1. weigert bij niet-gecommitte of niet-gepushte wijzigingen, en neemt de korte hash van `HEAD`
+     (10 tekens);
+  2. leest de vorige deploy-commit uit `/var/lib/martha/deployed`, en kiest uit de diff sindsdien
+     of er ook een database-dump komt (`host/db/` of een setup-script gewijzigd) en welke
+     setup-scripts draaien. Is de vorige deploy onbekend, dan wel een dump en geen scripts,
+     tenzij `-Setup` ze noemt. `setup_solar` draait met `--inverter` als `/etc/martha/grott.ini`
+     bestaat. De dashboards draaien alleen apart als er geen ander script draait (elk script
+     schrijft ze aan het eind);
+  3. kopieert alleen `host/` met `scp` naar `~/martha-deploy` (geen `offline/`);
+  4. draait `host/deploy.sh` met sudo in een sessie met terminal (`ssh -tt`). De andere
+     ssh-aanroepen krijgen `-n`, zodat alleen sudo stdin leest. `deploy.sh` installeert eerst
+     `martha-ha`, maakt `martha-ha backup <commit>` (en `backup-db <commit>`), draait
+     `install.sh --host-only` en de setup-scripts, en zet bij een fout de config terug met
+     `martha-ha restore <commit>`. Daarna schrijft hij de commit naar `deployed`.
+- **`install.sh --host-only`**: geen apt, geen images, geen LTSS, wheels of Grott uit de bundle,
+  `.env` blijft staan en HA wordt niet gestopt. Wel de host-bestanden, het schema, de services en
+  het opruimen hieronder. Een nieuwe versie van Docker, HA of TimescaleDB gaat via de volledige
+  `install.sh` (route B).
+- **`martha-ha`** (`host/martha_ha.py`, Python-stdlib):
+  - `backup [label]`: `tar.zst` (Python 3.14 `tarfile`) van de hele config-map, ook `secrets.yaml`
+    en `.storage`, zonder `deps`; SQLite-bestanden via de online backup-API. Bestandsnaam
+    `config-<YYYY-MM-DD_HHMMSS>-<label>.tar.zst`, ongeveer 90 KB.
+  - `backup-db [label]`: `pg_dump -Fc` als `db-<tijd>[-<label>].pgdump` (ongeveer 32 MB op
+    2026-10-30), elke nacht om 03:30 via `martha-backup-db.timer` (label `nightly`).
+  - `restore <commit|label|bestand>`: de nieuwste config-back-up met die commit of dat label (een
+    korte en een lange hash passen op elkaar). HA stopt, de huidige map gaat opzij als
+    `config.before-restore-<tijd>`, de back-up wordt uitgepakt, HA start en de health-check
+    draait. Leest ook het oude formaat `ha-*.tar.zst`, en neemt daaruit alleen de config.
+  - `restore-db <dump>`: hernoemt de huidige database naar `homeassistant_before_restore_<tijd>`
+    en laadt de dump in een nieuwe, met `timescaledb_pre_restore()`/`post_restore()` (getest op
+    martha, 2026-10-07: hypertables, continuous aggregates en policies komen terug). Haalt de dump
+    ook uit een oude `ha-*.tar.zst`.
+  - `token`: logt interactief in via de login-flow (`/auth/login_flow`) en maakt het long-lived
+    token `martha-root` in `/etc/martha/ha-root.env` (0600), dat de setup-scripts gebruiken. Dit
+    vervangt `setup-gate` (zonder gate-gebruiker, staging-token of notify-service).
+  - `check` (`check_config` op de huidige config) en `status` (laatste back-ups, vrije ruimte).
+    Elke wijzigende opdracht neemt een flock; een tweede wacht op zijn beurt.
+- **De setup-scripts schrijven hun packages met `put_files()`**: eerst `check_config` in een
+  wegwerpcontainer (`--network none`) op een kopie met de nieuwe bestanden, dan schrijven,
+  herladen (alleen automations, scripts, scenes, blueprints) of herstarten, en de health-check op
+  de log. `check_config` vangt niet alles: een ongeldige automation-trigger meldt HA pas bij het
+  opstarten ("has been disabled"), daarom leest de health-check de log op `FATAL_LOG`. Faalt hij,
+  dan komen de vorige bestanden terug en herstart HA. Elk script maakt vooraf zelf een back-up
+  (`before-p1`, `before-solar`, `before-heat`).
+- **`packages/martha_storage.yaml`** (ADR-001) is van `install.sh` (alleen neergezet als hij
+  ontbreekt; `setup_solar.py` past alleen de LTSS-include aan). `check_config` krijgt
+  `/opt/homeassistant/pydeps` mee, zodat LTSS te importeren is.
+- **Opruimen van de agent-laag** door `install.sh` (idempotent, uitgevoerd op 2026-10-30): de
+  services `martha-gate`, `martha-ha` (de daemon) en `martha-staging-proxy`, de staging-container
+  en het netwerk `martha-staging`, user en groep `martha-gate`, `gate.env`, `staging/`,
+  `proposals/` en `NOTIFY_SERVICE` in `ha-root.env`. `martha-ha cleanup-legacy` zet
+  `ha-config.git` als `ha-config-git-<tijd>.tar.zst` bij de back-ups en verwijdert hem, haalt
+  `packages/martha_gate.yaml` (met een herstart) en `martha_gate_secret` weg, en verwijdert de
+  HA-gebruiker "Martha gate". NemoClaw en OpenShell (geïnstalleerd als `david`) ruimt
+  `install.sh` niet op. Bestaande back-ups blijven staan.
 
 ## Open punten
 - **Zonnepanelen** (vanaf 2026-10-23): ontwerp staat (zie *Zonnepanelen*), bouw in 6 fasen,
@@ -411,22 +324,18 @@ Telefoon (HA Companion) --[Toepassen/Afwijzen]--> productie-HA --rest_command-->
 - **`check_config` geeft exit 0 bij een ongeldige template-optie** (gevonden op 2026-10-13,
   HA 2026.9.4). Hij logt alleen `ERROR:homeassistant.config:Invalid config for 'template' …`.
   `check()` in `martha_ha.py` kijkt alleen naar de exitcode en laat zo'n fout dus door. Na de
-  herstart vangt de health-check het wel ("Invalid config" staat in `FATAL_LOG`), en volgt een
-  automatische rollback. Te overwegen: `check()` laten afkeuren op `Invalid config` in de
+  herstart vangt de health-check het wel ("Invalid config" staat in `FATAL_LOG`), en komen de
+  vorige bestanden terug. Te overwegen: `check()` laten afkeuren op `Invalid config` in de
   uitvoer.
 - Offline OS-updates (zie hierboven).
-- Back-up buiten martha (nu staan de back-ups op dezelfde schijf).
+- Back-up buiten martha (nu staan de back-ups op dezelfde schijf, zie C19).
 - **De health-check mist fouten bij het opzetten van een platform.** "Error while setting up
   sql platform" (bij de eerdere gastabel) kwam niet door de health-check (gevonden op 2026-10-09). `FATAL_LOG` in
   `martha_ha.py` herkent het patroon niet. Het toevoegen moet nog worden afgewogen: een
-  integratie die tijdelijk een apparaat mist, logt hetzelfde en zou dan een rollback geven.
+  integratie die tijdelijk een apparaat mist, logt hetzelfde en zou dan worden teruggedraaid.
 - LTSS is een community-integratie zonder onderhoudsgarantie (laatste release 2024-12).
   Terugvaloptie volgens ADR-001: `mqtt_statestream` → Telegraf → Timescale.
 - **ADR-001 staat op martha** (verse installatie, 2026-10-07): schema toegepast, de Recorder
   schrijft in PostgreSQL en LTSS in `ltss`; `ltss_1m` en `ltss_1h` en hun policies bestaan.
   Met echte P1-data (2026-10-08) vult `ltss_1m` zich per minuut met gemiddelde, min, max en
   laatste waarde; `ltss_1h` is nog niet bekeken.
-- Attestatieproxy voor Phala: **uitgesteld** (keuze van de gebruiker, 2026-10-07; ADR-002,
-  *Aanvulling 2026-10-07*). Opnieuw bekijken zodra teep of `@phala/aci-verifier` het ACI/1-formaat
-  van `inference.phala.com` ondersteunt. Komt hij er, dan moet nog besloten worden waar hij
-  draait ten opzichte van de OpenShell-sandbox.
