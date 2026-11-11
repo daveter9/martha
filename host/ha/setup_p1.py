@@ -138,10 +138,11 @@ NAMES = {
 }
 
 
-def views(ids, electricity_costs=(), gas_costs=()):
+def views(ids, electricity_costs=(), gas_costs=(), use_total=None):
     """The P1 pages: Gebruik woning for the dashboard Elektriciteit, Gas (in the fixed layout
     of dashboards.page) for Verwarming. The costs come from the other parts when installed.
-    Only cards for sensors this meter actually has."""
+    Only cards for sensors this meter actually has. 'use_total' is the use of the house
+    wherever it comes from (solar_total_use), for the use per hour."""
     def named(*keys):
         return [(ids[k], NAMES.get(k)) for k in keys if k in ids]
 
@@ -170,7 +171,11 @@ def views(ids, electricity_costs=(), gas_costs=()):
     for label, period, days in (("uur", "hour", 1), ("dag", "day", 30), ("week", "week", 26 * 7),
                                 ("maand", "month", 365), ("jaar", "year", 5 * 365)):
         cards = [{"type": "heading", "heading": f"Per {label}"}]
-        if used:
+        # Per hour one bar, without low and normal tariff (user's request, 2026-11-11).
+        if period == "hour" and use_total:
+            cards.append(statistics(f"Gebruik per {label}", [{"entity": use_total, "name": "Gebruik"}],
+                                    period, days, ["change"], "bar"))
+        elif used:
             cards.append(statistics(f"Gebruik per {label}", ents(used), period, days,
                                     ["change"], "bar-stack"))
         if costs:

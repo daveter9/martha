@@ -19,6 +19,16 @@ sql:
     column: v
     query: SELECT round(self_use::numeric, 3) AS v FROM solar_totals() LIMIT 1;
 
+  - name: Stroomverbruik woning
+    unique_id: solar_total_use
+    icon: mdi:home-lightning-bolt
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    # Grid plus solar self-use, for Gebruik per uur on Gebruik woning.
+    query: SELECT round(use_house::numeric, 3) AS v FROM solar_totals() LIMIT 1;
+
   - name: Zonnepanelen teruglevering
     unique_id: solar_total_export
     icon: mdi:transmission-tower-import

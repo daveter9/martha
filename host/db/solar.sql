@@ -485,13 +485,15 @@ END $$;
 -- --- Totals (doel 1, 2, 3) ----------------------------------------------------------------
 -- Running totals since the start, for the SQL sensors (packages/solar.yaml). HA turns
 -- them into long-term statistics, which give the sums per day, week, month and year.
+DROP FUNCTION IF EXISTS solar_totals();
 CREATE OR REPLACE FUNCTION solar_totals()
 RETURNS TABLE (
     self_use double precision, saving_self double precision,
     export double precision, revenue_export double precision, cost_export double precision,
     export_negative double precision, revenue_negative double precision,
     benefit double precision, cost_import double precision,
-    cmp_cost_fixed double precision, cmp_cost_dynamic double precision)
+    cmp_cost_fixed double precision, cmp_cost_dynamic double precision,
+    use_house double precision)
 LANGUAGE sql STABLE AS $$
     SELECT sum(self_use), sum(saving_self),
            sum(export_low + export_normal), coalesce(sum(revenue_export), 0),
@@ -500,7 +502,9 @@ LANGUAGE sql STABLE AS $$
            coalesce(sum(saving_self), 0) + coalesce(sum(revenue_export), 0)
                - coalesce(sum(cost_export), 0) - coalesce(sum(cost_export_fixed), 0),
            sum(cost_import),
-           sum(cmp_cost_fixed), sum(cmp_cost_dynamic)
+           sum(cmp_cost_fixed), sum(cmp_cost_dynamic),
+           -- The use of the house wherever it comes from: grid plus solar self-use.
+           sum(import_low + import_normal + coalesce(self_use, 0))
     FROM solar_1d
     WHERE day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date
 $$;
