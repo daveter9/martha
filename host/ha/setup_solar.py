@@ -389,9 +389,8 @@ def views(ids):
         helpers("Contract (incl. btw)", ["import_normal", "import_low", "feed_in",
                                          "feed_in_cost", "feed_in_cost_month"]),
         {"type": "markdown", "content":
-            "Wijzig een tarief op de dag dat het ingaat: elke waarde geldt vanaf het moment dat "
-            "je hem invult. Uitzondering: de eerste wijziging na de startdatum geldt vanaf de "
-            "startdatum."},
+            "Een tarief geldt voor alle data, ook de dagen hiervoor. Na een wijziging rekent "
+            "martha binnen 5 minuten alles opnieuw uit."},
     ]
 
     def clean(cards):

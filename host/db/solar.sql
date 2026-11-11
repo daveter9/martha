@@ -101,9 +101,16 @@ LANGUAGE sql STABLE AS $$
     ORDER BY time DESC LIMIT 1
 $$;
 
--- Validity ranges of input_number.solar_<key>. A value holds from the moment it was set.
--- Exception: the first change at or after the start applies from the start, so tariffs
--- can be filled in a few days late. Later changes hold from the moment they are made.
+-- Validity ranges of input_number.solar_<key>. The electricity tariffs (solar_tariff_keys)
+-- have no history: the value last entered holds for all data (user's request, 2026-11-11);
+-- solar_job and heat_job recompute everything when one changes. For the other helpers a
+-- value holds from the moment it was set, except the first change at or after the start,
+-- which applies from the start.
+CREATE OR REPLACE FUNCTION solar_tariff_keys() RETURNS text[]
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT ARRAY['import_normal', 'import_low', 'feed_in', 'feed_in_cost', 'feed_in_cost_month']
+$$;
+
 CREATE OR REPLACE FUNCTION solar_setting_ranges()
 RETURNS TABLE (key text, valid_from timestamptz, valid_to timestamptz, value double precision)
 LANGUAGE sql STABLE AS $$
@@ -121,12 +128,21 @@ LANGUAGE sql STABLE AS $$
                CASE WHEN first_after_start THEN start ELSE time END AS eff
         FROM s
     )
-    SELECT substr(entity_id, length('input_number.solar_') + 1),
-           CASE WHEN row_number() OVER w = 1 THEN '-infinity'::timestamptz ELSE eff END,
-           lead(eff, 1, 'infinity'::timestamptz) OVER w,
-           value
-    FROM e
-    WINDOW w AS (PARTITION BY entity_id ORDER BY eff, time)
+    SELECT k, valid_from, valid_to, value FROM (
+        SELECT substr(entity_id, length('input_number.solar_') + 1) AS k,
+               CASE WHEN row_number() OVER w = 1 THEN '-infinity'::timestamptz ELSE eff END AS valid_from,
+               lead(eff, 1, 'infinity'::timestamptz) OVER w AS valid_to,
+               value
+        FROM e
+        WINDOW w AS (PARTITION BY entity_id ORDER BY eff, time)
+    ) r
+    WHERE k <> ALL (solar_tariff_keys())
+    UNION ALL
+    SELECT DISTINCT ON (entity_id) substr(entity_id, length('input_number.solar_') + 1),
+           '-infinity'::timestamptz, 'infinity'::timestamptz, value
+    FROM solar_setting
+    WHERE entity_id = ANY (SELECT 'input_number.solar_' || unnest(solar_tariff_keys()))
+    ORDER BY entity_id, time DESC
 $$;
 
 -- Current value of input_number.solar_<key> (NULL if it was never stored).
@@ -868,11 +884,23 @@ DECLARE
     v_last timestamptz;
     v_day  timestamptz := date_trunc('day', (now() - INTERVAL '6 hours') AT TIME ZONE 'Europe/Amsterdam')
                           AT TIME ZONE 'Europe/Amsterdam';
+    -- The last change of an electricity tariff: they hold for all data, so a change means
+    -- recomputing everything since the start.
+    v_new  double precision := extract(epoch FROM (
+               SELECT max(time) FROM solar_setting
+               WHERE entity_id = ANY (SELECT 'input_number.solar_' || unnest(solar_tariff_keys()))));
+    v_seen double precision := (SELECT value FROM solar_result WHERE key = 'tariffs_seen');
 BEGIN
     SELECT max(minute) INTO v_last FROM solar_1m;
+    IF v_last IS NOT NULL AND v_new IS DISTINCT FROM v_seen THEN
+        v_last := NULL;
+    END IF;
     PERFORM solar_recompute(CASE WHEN v_last IS NULL THEN solar_start()
                                  ELSE least(v_day, v_last + INTERVAL '1 minute') END,
                             now());
+    INSERT INTO solar_result (key, value, detail, updated)
+    VALUES ('tariffs_seen', v_new, 'Laatste tariefwijziging verwerkt (epoch); intern.', now())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = EXCLUDED.updated;
 END $$;
 
 CREATE OR REPLACE PROCEDURE solar_results_job(job_id integer, config jsonb)

@@ -179,14 +179,12 @@ niet: wijzig het op de dag dat het ingaat.
   normaal (Nederlandse DSMR).
 - **Helpers en historie:** de trigger `solar_capture` op `ltss` bewaart elke *wijziging* van
   `input_number.solar_*` en `input_datetime.solar_*` in `solar_setting`; dezelfde waarde na een
-  herstart telt niet als wijziging. Een waarde geldt vanaf het moment van wijzigen, behalve de
-  eerste wijziging na de startdatum: die geldt vanaf de startdatum. Zo kun je de tarieven
-  een paar dagen na de start invullen.
-  *Valkuil* (2026-11-11): wordt de startdatum later gezet dan de laatste tariefwijziging,
-  dan geldt de eerstvolgende wijziging, ook een tikfout, vanaf de nieuwe startdatum. Zo
-  rekende de hele dag 11-11 met een inkoopprijs van € 1,27 die om 20:46 een minuut had
-  gestaan. Oplossing: de foute rijen uit `solar_setting` halen en `solar_recompute(solar_start(),
-  now())` (en `heat_recompute` voor dezelfde periode) draaien.
+  herstart telt niet als wijziging. De **stroomtarieven** (`solar_tariff_keys()`: inkoop normaal
+  en dal, terugleververgoeding, terugleverkosten per kWh en per maand) hebben geen historie: de
+  laatst ingevulde waarde geldt voor alle data (verzoek van de gebruiker, 2026-11-11), en
+  `solar_job` en `heat_job` rekenen na een wijziging alles opnieuw uit. Eerder gold een tarief
+  vanaf het moment van wijzigen (de eerste wijziging na de startdatum vanaf de startdatum);
+  een tikfout van een minuut gold daardoor een hele dag. Voor de andere helpers geldt dat nog.
 - **Jobs:** `solar_job` (elke 5 minuten) rekent de minuten sinds de vorige run en altijd de
   laatste 6 uur opnieuw uit, plus de dagen die daarbij horen in `solar_1d`. `solar_results_job`
   (elk uur) draait de batterijsimulatie over de laatste 365 dagen en maakt de tabel met het
