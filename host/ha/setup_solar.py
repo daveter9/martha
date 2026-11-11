@@ -347,7 +347,7 @@ def views(ids):
         (e("solar_home_pv_today"), "Vandaag"), (e("solar_home_benefit_today"), "Kosten vandaag"),
         (e("solar_home_pv_week"), "Deze week"), (e("solar_home_benefit_week"), "Kosten deze week"),
         (e("solar_home_pv_month"), "Deze maand"), (e("solar_home_benefit_month"), "Kosten deze maand"),
-    ], "Opwek kWh", "€", split=[
+    ], "Opwek kWh", "Besparing €", split=[
         (f"&nbsp;&nbsp;{label}", [(e(f"solar_home_{col}_now"), "Nu"), (e(f"solar_home_{col}_today"), "Vandaag"),
                                   (e(f"solar_home_{col}_week"), "Deze week"),
                                   (e(f"solar_home_{col}_month"), "Deze maand")])
@@ -356,7 +356,7 @@ def views(ids):
                                                    (e("solar_total_self_use"), "Naar het huis")) if x]
     cards = [c for c in (table,) if c]
     if split:
-        cards.append({"type": "statistics-graph", "title": "Per dag naar het net en naar het huis",
+        cards.append({"type": "statistics-graph", "title": "Opwek per dag",
                       "chart_type": "bar-stack", "entities": split, "stat_types": ["change"],
                       "period": "day", "days_to_show": 30, "grid_options": {"columns": "full"}})
     overview = {"type": "sections", "max_columns": 4, "title": "Zonnepanelen",
