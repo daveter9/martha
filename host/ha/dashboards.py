@@ -35,10 +35,6 @@ HEADINGS_GAS = "Gasmeter"
 HEADINGS = {
     ("electricity", "gebruik-woning"): "Gebruik woning",
     ("electricity", "zonnepanelen"): "Zonnepanelen",
-    ("electricity", "omvormer"): "Omvormer",
-    ("electricity", "contract"): "Stroomcontract",
-    ("electricity", "investering"): "Investering zonnepanelen",
-    ("electricity", "overschot"): "Zonne-overschot",
     ("electricity", "instellingen"): "Instellingen stroom",
     ("heating", "gas"): HEADINGS_GAS,
     ("heating", "kosten"): "Kosten verwarmen",

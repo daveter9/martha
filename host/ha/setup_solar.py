@@ -26,7 +26,6 @@ With --inverter (phase 5, the Growatt through Modbus TCP on its ShineLink), also
     there as martha_growatt_host in secrets.yaml;
   - packages/solar_growatt.yaml (Home Assistant's Modbus integration reads the inverter);
   - the roles pv_power and pv_total in solar_entity, so the calculations use the generation;
-  - the tab 'Omvormer' on the dashboard Elektriciteit.
 deploy.ps1 runs --inverter when /etc/martha/inverter exists.
 """
 
@@ -330,11 +329,6 @@ def views(ids):
     def e(uid):
         return ids.get(uid)
 
-    def graph(title, uids, period, days):
-        return {"type": "statistics-graph", "title": title, "chart_type": "bar",
-                "entities": [e(u) for u in uids if e(u)], "stat_types": ["change"],
-                "period": period, "days_to_show": days}
-
     def helpers(title, keys):
         return {"type": "entities", "title": title,
                 "entities": [f"input_number.solar_{k}" for k in keys]}
@@ -373,74 +367,14 @@ def views(ids):
                 "sections": [{"type": "grid", "column_span": 4,
                               "cards": [{**c, "grid_options": {"columns": "full"}} for c in cards]}]
                 } if cards else None
-    contract = dashboards.page(
-        "Contract", "contract", "mdi:file-compare",
-        costs=[(e("solar_total_cmp_fixed"), "Huidig contract"),
-               (e("solar_total_cmp_dynamic"), "Dynamisch contract")],
-        details=[
-            {"type": "markdown", "content":
-                "Netto stroomkosten (inkoop min teruglevering plus terugleverkosten) over de minuten "
-                "met een day-ahead-prijs. Vaste kosten per maand tellen niet mee. Vul de opslagen en "
-                "de energiebelasting van het dynamische contract in onder *Instellingen*."},
-            {"type": "entities", "title": "Day-ahead-prijzen",
-             "entities": [e("solar_day_ahead_prices"), e("solar_day_ahead_missing")]},
-        ])
-    investment = [
-        {"type": "entities", "title": "Tot nu toe", "entities": [
-            e("solar_payback_ratio"), e("solar_break_even"),
-            {"type": "attribute", "entity": e("solar_payback_ratio"), "attribute": "geinvesteerd",
-             "name": "Geïnvesteerd", "suffix": "EUR"},
-            {"type": "attribute", "entity": e("solar_payback_ratio"), "attribute": "opgeleverd",
-             "name": "Opgeleverd", "suffix": "EUR"},
-        ]},
-        {"type": "entities", "title": "Prognose",
-         "entities": [e("solar_npv"), e("solar_irr"), e("solar_payback_years")]},
-        {"type": "markdown", "title": "Kasstroom per jaar",
-         "content": f"{{{{ state_attr('{e('solar_forecast_table')}', 'tabel') }}}}"},
-        helpers("Investering", ["investment", "extra_costs"]),
-        helpers("Aannames prognose", ["expected_yield", "self_use_assumed", "degradation",
-                                      "lifetime_panels", "lifetime_inverter",
-                                      "inverter_replacement", "growth_import",
-                                      "growth_feed_in", "discount_rate"]),
-    ]
-    surplus = [
-        {"type": "entities", "title": "Batterij (simulatie, per jaar)", "entities": [
-            e("solar_battery_saving"),
-            {"type": "attribute", "entity": e("solar_battery_saving"), "attribute": "toelichting",
-             "name": "Toelichting"},
-        ]},
-        helpers("Batterij", ["battery_capacity", "battery_power", "battery_efficiency"]),
-        {"type": "markdown", "title": "Gemiddeld per uur van de dag (30 dagen)",
-         "content": f"{{{{ state_attr('{e('solar_surplus_per_hour')}', 'tabel') }}}}"},
-    ]
     settings = [
         {"type": "entities", "title": "Start", "entities": ["input_datetime.solar_start"]},
         helpers("Contract (incl. btw)", ["import_normal", "import_low", "feed_in",
                                          "feed_in_cost", "feed_in_cost_month"]),
-        helpers("Dynamisch contract (vergelijking)", ["dyn_import_markup", "dyn_feed_in_markup",
-                                                      "energy_tax", "vat"]),
         {"type": "markdown", "content":
             "Wijzig een tarief op de dag dat het ingaat: elke waarde geldt vanaf het moment dat "
             "je hem invult. Uitzondering: de eerste wijziging na de startdatum geldt vanaf de "
             "startdatum."},
-    ]
-
-    growatt = ["solar_growatt_power", "solar_growatt_energy_today", "solar_growatt_status",
-               "solar_growatt_temperature", "solar_growatt_last_message"]
-    strings = ["solar_growatt_pv1_voltage", "solar_growatt_pv1_current",
-               "solar_growatt_pv2_voltage", "solar_growatt_pv2_current"]
-    inverter = [
-        {"type": "grid", "columns": 2, "square": False,
-         "cards": [{"type": "tile", "entity": e(u)} for u in growatt]},
-        {"type": "history-graph", "title": "Vermogen (24 uur)", "hours_to_show": 24,
-         "entities": [e("solar_growatt_power")]},
-        graph("Opwek per dag (30 dagen)", ["solar_growatt_energy_total"], "day", 30),
-        graph("Opwek per maand (1 jaar)", ["solar_growatt_energy_total"], "month", 365),
-        {"type": "history-graph", "title": "Strings (24 uur)", "hours_to_show": 24,
-         "entities": [e(u) for u in strings]},
-        {"type": "entities", "title": "Net", "entities": [
-            e("solar_growatt_grid_voltage"), e("solar_growatt_frequency"),
-            e("solar_growatt_energy_total")]},
     ]
 
     def clean(cards):
@@ -457,15 +391,13 @@ def views(ids):
             out.append(c)
         return out
 
-    views = [("Investering", "investering", "mdi:finance", investment),
-             ("Overschot", "overschot", "mdi:sun-clock", surplus),
-             ("Instellingen", "instellingen", "mdi:cog", settings)]
-    if e("solar_growatt_power"):
-        views.insert(0, ("Omvormer", "omvormer", "mdi:solar-panel", inverter))
+    # Omvormer, Investering, Overschot and Contract are not shown (user's request, 2026-11-11);
+    # their sensors and helpers stay.
+    views = [("Instellingen", "instellingen", "mdi:cog", settings)]
     if not ids:
         return []
-    return ([v for v in (overview, contract) if v]
-            + [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in views])
+    return ([overview] if overview else []) + [
+        {"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in views]
 
 
 def main():

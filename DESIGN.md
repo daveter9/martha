@@ -254,6 +254,10 @@ Grott in proxy-modus anders niets verwerkt (C1a). Alle berekeningen zitten in Ti
 (`host/db/solar.sql`, tabel `solar_1m` per minuut) en worden in HA getoond via SQL-sensoren en
 HA-statistieken. Tarieven en investering zijn helpers in HA, en LTSS bewaart hun historie.
 Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.local` kent.
+- **Pagina's op Elektriciteit** (verzoek van de gebruiker, 2026-11-11): alleen *Gebruik woning*,
+  *Zonnepanelen* en *Instellingen*. *Omvormer*, *Investering*, *Overschot* en *Contract* staan er
+  niet meer op, en bij *Instellingen* ook niet de helpers van het dynamische contract. De
+  sensoren, helpers en berekeningen erachter blijven bestaan.
 - **De pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11) toont alleen drie dingen, onder
   een titel zonder ondertitel,
   en wijkt dus af van de vaste indeling (C25):
