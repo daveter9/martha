@@ -257,7 +257,7 @@ def write(ws, token):
     if solar_ids.get("solar_home_pv_now") and use_today:
         path = DASHBOARDS["electricity"][0]
         more[path] = {"Nu": [f"opwek {value(solar_ids['solar_home_pv_now'])}"]}
-        under_use[path] = {"Dag": [f"{label} {percent(e, use_today)}"
+        under_use[path] = {"Dag": [f"{percent(e, use_today)} {label}"
                                    for label, e in (("net", heat_ids.get("heat_home_import_today")),
                                                     ("pv", solar_ids.get("solar_home_self_today"))) if e]}
     write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown], more,
@@ -468,7 +468,7 @@ def percent(part, whole):
             ) % {"p": part, "w": whole}
 
 
-def now_today(values, horizontal=False, labels=None, more=None, under_use=None):
+def now_today(values, horizontal=False, labels=None, more=None, under_use=None, age_last=False):
     """Use and costs now and today (C25), as the user asked:
 
         **Nu**          **Dag**         **Week**        **Maand**
@@ -478,7 +478,8 @@ def now_today(values, horizontal=False, labels=None, more=None, under_use=None):
 
     'values' are (entity_id, name) with the names of BLOCKS; a block without values is left
     out. 'labels' limits the blocks (Thuis shows only Nu and Dag); 'more' are extra lines per
-    block label, under the use and the costs; 'under_use' extra lines between the two."""
+    block label, under the use and the costs; 'under_use' extra lines between the two. With
+    'age_last' how long ago the measurement is goes at the very bottom, under all blocks (Thuis)."""
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
     blocks = []
@@ -487,12 +488,14 @@ def now_today(values, horizontal=False, labels=None, more=None, under_use=None):
             continue
         lines = ([value(by[use])] if use in by else []) + list((under_use or {}).get(label, ()))             + ([value(by[cost])] if cost in by else []) + list((more or {}).get(label, ()))
         # How long ago the measurement behind 'Nu' is: small, at the bottom of the Nu block.
-        if label == "Nu" and lines and age:
+        if label == "Nu" and lines and age and not age_last:
             lines.append(f"<small>{ago(*age)}</small>")
         if lines:
             blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
     if not blocks:
         return None
+    if age_last and age:
+        blocks.append(f"<small>{ago(*age)}</small>")
     if horizontal:   # on the overviews: the blocks side by side
         return {"type": "horizontal-stack",
                 "cards": [{"type": "markdown", "content": b} for b in blocks]}
@@ -517,7 +520,7 @@ def write_start(ws, dashboards, more=None, under_use=None):
     buttons = []
     for path, title, icon, values in dashboards:
         body = now_today(values, labels=("Nu", "Dag"), more=(more or {}).get(path),
-                         under_use=(under_use or {}).get(path))
+                         under_use=(under_use or {}).get(path), age_last=True)
         content = (f'<center><ha-icon icon="{icon}"></ha-icon><br><b>{title}</b>'
                    + ("<br><br>" + body["content"].replace("\n\n", "<br><br>") if body else "")
                    + "</center>")
