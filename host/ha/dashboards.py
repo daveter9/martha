@@ -140,7 +140,7 @@ def collect(ws, token):
         out["electricity"] += p1["electricity"]
         out["heating"] += p1["gas"]
 
-    out["electricity"] += setup_solar.views(solar)
+    out["electricity"] += setup_solar.views(solar, p1_ids)
     if rows:
         h = setup_heat.views(heat, rows)
         out["heating"] += h["heating"]

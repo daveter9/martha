@@ -276,10 +276,17 @@ def sql_entities(ws):
             and str(e.get("unique_id", "")).startswith("solar_")}
 
 
-def views(ids):
-    """The solar views on the dashboard Elektriciteit (host/ha/dashboards.py)."""
+def views(ids, p1=None):
+    """The solar views on the dashboard Elektriciteit (host/ha/dashboards.py). 'p1' are the
+    entity ids of the P1 meter by DSMR key: its feed-in is shown live on Zonnepanelen, also
+    while the inverter is not connected."""
+    p1 = p1 or {}
+
     def e(uid):
         return ids.get(uid)
+
+    def meter(key, name):
+        return {"entity": p1[key], "name": name} if key in p1 else None
 
     def stat(uid, title=None):
         card = {"type": "statistic", "entity": e(uid), "stat_type": "change",
@@ -297,9 +304,26 @@ def views(ids):
         return {"type": "entities", "title": title,
                 "entities": [f"input_number.solar_{k}" for k in keys]}
 
+    # Live, from the P1 meter: the power to and from the grid now and over 24 hours. Without the
+    # inverter the feed-in is all that is known of the panels.
+    now = [meter("current_electricity_delivery", "Teruglevering nu"),
+           meter("current_electricity_usage", "Verbruik nu")]
+    now = [x for x in now if x]
+    live = [{"type": "tile", "entity": x["entity"], "name": x["name"]} for x in now]
+    if e("solar_growatt_power"):
+        live.insert(0, {"type": "tile", "entity": e("solar_growatt_power"), "name": "Opwek nu"})
+    if now:
+        power = ([{"entity": e("solar_growatt_power"), "name": "Opwek"}] if e("solar_growatt_power") else []) + now
+        live.append({"type": "history-graph", "title": "Vermogen (24 uur)", "hours_to_show": 24,
+                     "entities": power, "grid_options": {"columns": "full"}})
+    delivered = [(p1.get("electricity_delivered_tariff_2"), "Teruglevering normaal"),
+                 (p1.get("electricity_delivered_tariff_1"), "Teruglevering dal")]
+
     overview = dashboards.page(
         "Zonnepanelen", "zonnepanelen", "mdi:solar-power",
-        usage=[(e("solar_growatt_energy_total"), "Opwek"), (e("solar_total_self_use"), "Eigen gebruik"),
+        today=live,
+        usage=[(e("solar_growatt_energy_total"), "Opwek"), *delivered,
+               (e("solar_total_self_use"), "Eigen gebruik"),
                (e("solar_total_export_negative"), "Teruglevering bij negatieve prijs")],
         costs=[(e("solar_total_benefit"), "Netto opbrengst"),
                (e("solar_total_saving_self"), "Besparing eigen gebruik"),
