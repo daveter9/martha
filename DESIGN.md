@@ -257,9 +257,9 @@ Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.l
 - **De pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11) toont alleen twee dingen,
   en wijkt dus af van de vaste indeling (C25):
   1. de tabel *Nu*, *Dag*, *Week*, *Maand* zoals op de overzichten (`now_table()`): `kWh` =
-     opwek (*Nu* in kW), `€` = netto opbrengst (besparing eigen gebruik + terugleververgoeding
-     − terugleverkosten per kWh, zonder de vaste terugleverkosten per maand; *Nu* in €/u met de
-     prijzen van nu). Uit `solar_home()`: *Nu* uit het laatste vermogen van de omvormer en de
+     opwek (*Nu* in kW), `€` = de besparing van de teruglevering: kWh naar het net × de kWh-prijs (inkoop) van die
+     minuut (verzoek van de gebruiker, 2026-11-11; `saving_export` in `solar_1d`; *Nu* in €/u
+     met de prijs van nu). Uit `solar_home()`: *Nu* uit het laatste vermogen van de omvormer en de
      teruglevering van de P1-meter (rol `export_power`), de periodes uit `solar_1d`. Linksboven
      hoe lang de laatste meting van de omvormer geleden is. Onder *Opwek kWh* staat de verdeling: *naar net* (teruglevering) en *naar huis* (eigen gebruik), met *Nu* in kW (verzoek van de gebruiker, 2026-11-11; extra rijen via `split` van `now_table()`);
   2. per dag (30 dagen) een gestapelde balk met wat naar het net ging (`solar_total_export`) en

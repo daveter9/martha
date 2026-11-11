@@ -339,6 +339,8 @@ CREATE TABLE IF NOT EXISTS solar_1d (
     cmp_cost_fixed     double precision,          -- net cost on the contract, those minutes
     cmp_cost_dynamic   double precision           -- net cost on a dynamic contract, same minutes
 );
+-- EUR, the feed-in at the import price of its minute: what it saves (the table on Zonnepanelen).
+ALTER TABLE solar_1d ADD COLUMN IF NOT EXISTS saving_export double precision;
 
 -- (Re)calculate solar_1m for the minutes in [p_from, p_to), never before the start, and
 -- the days they touch in solar_1d. Returns the number of minutes written.
@@ -457,7 +459,7 @@ BEGIN
               AND (d.day::timestamp AT TIME ZONE 'Europe/Amsterdam') < valid_to)
              / extract(day FROM date_trunc('month', d.day) + INTERVAL '1 month' - INTERVAL '1 day'),
            d.saving_self, d.export_negative, d.revenue_negative, d.cmp_minutes,
-           d.cmp_cost_fixed, d.cmp_cost_dynamic
+           d.cmp_cost_fixed, d.cmp_cost_dynamic, d.saving_export
     FROM (
         SELECT (minute AT TIME ZONE 'Europe/Amsterdam')::date AS day,
                count(*) AS minutes,
@@ -471,7 +473,8 @@ BEGIN
                sum(revenue_export - cost_export) FILTER (WHERE day_ahead < 0) AS revenue_negative,
                count(day_ahead) AS cmp_minutes,
                sum(cost_import - revenue_export + cost_export) FILTER (WHERE day_ahead IS NOT NULL) AS cmp_cost_fixed,
-               sum(dyn_cost_import - dyn_revenue_export) FILTER (WHERE day_ahead IS NOT NULL) AS cmp_cost_dynamic
+               sum(dyn_cost_import - dyn_revenue_export) FILTER (WHERE day_ahead IS NOT NULL) AS cmp_cost_dynamic,
+               sum((export_low + export_normal) * price_import) AS saving_export
         FROM solar_1m
         WHERE minute >= (p_first::timestamp AT TIME ZONE 'Europe/Amsterdam')
           AND minute < ((p_last + 1)::timestamp AT TIME ZONE 'Europe/Amsterdam')
@@ -502,19 +505,18 @@ LANGUAGE sql STABLE AS $$
     WHERE day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date
 $$;
 
--- The table on the page Zonnepanelen: generation and net benefit now, today, this week (from
--- Monday) and this month. Now: the last power of the inverter (W -> kW; unavailable at night
--- counts as 0) and of the feed-in, valued at the contract prices of now. The periods: the sum
--- of the days in solar_1d (lags up to ~5 minutes), benefit = saving on self-use + feed-in
--- compensation - feed-in cost per kWh; the fixed feed-in cost per month is left out, as the
--- fixed costs are on Elektriciteit (heat_home).
--- With the split of the generation: to the grid (export) and to the house (self_use).
+-- The table on the page Zonnepanelen: generation, its split to the grid (export) and to the
+-- house (self_use), and the saving of the feed-in now, today, this week (from Monday) and
+-- this month. Saving = kWh to the grid x the import price of that minute (user's request,
+-- 2026-11-11). Now: the last power of the inverter (W -> kW; unavailable at night counts as
+-- 0) and of the feed-in, at the import price of now. The periods: the sum of the days in
+-- solar_1d (lags up to ~5 minutes).
 DROP FUNCTION IF EXISTS solar_home();
 CREATE OR REPLACE FUNCTION solar_home()
-RETURNS TABLE (pv_now double precision, benefit_now double precision,
-               pv_today double precision, benefit_today double precision,
-               pv_week double precision, benefit_week double precision,
-               pv_month double precision, benefit_month double precision,
+RETURNS TABLE (pv_now double precision, saving_now double precision,
+               pv_today double precision, saving_today double precision,
+               pv_week double precision, saving_week double precision,
+               pv_month double precision, saving_month double precision,
                export_now double precision, self_now double precision,
                export_today double precision, self_today double precision,
                export_week double precision, self_week double precision,
@@ -539,30 +541,26 @@ BEGIN
                           ORDER BY time DESC LIMIT 1), 0);
     v_tariff := (SELECT state FROM ltss WHERE entity_id = e_tariff AND state IN ('low', 'normal')
                  ORDER BY time DESC LIMIT 1);
+    saving_now := v_export * coalesce(solar_setting_now(CASE WHEN v_tariff = 'low' THEN 'import_low'
+                                                            ELSE 'import_normal' END), 0);
     IF e_pv IS NOT NULL THEN
         pv_now := v_pv;
         export_now := v_export;
         self_now := greatest(v_pv - v_export, 0);
-        benefit_now := greatest(v_pv - v_export, 0)
-                           * coalesce(solar_setting_now(CASE WHEN v_tariff = 'low' THEN 'import_low'
-                                                             ELSE 'import_normal' END), 0)
-                       + v_export * (coalesce(solar_setting_now('feed_in'), 0)
-                                     - coalesce(solar_setting_now('feed_in_cost'), 0));
     END IF;
     WITH d AS (
-        SELECT day, pv, coalesce(saving_self, 0) + coalesce(revenue_export, 0)
-                        - coalesce(cost_export, 0) AS benefit,
+        SELECT day, pv, coalesce(saving_export, 0) AS saving,
                export_low + export_normal AS export, self_use
         FROM solar_1d
         WHERE day >= least(v_week, v_month) AND day <= v_day
           AND day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date)
-    SELECT sum(pv) FILTER (WHERE day = v_day), coalesce(sum(benefit) FILTER (WHERE day = v_day), 0),
-           sum(pv) FILTER (WHERE day >= v_week), coalesce(sum(benefit) FILTER (WHERE day >= v_week), 0),
-           sum(pv) FILTER (WHERE day >= v_month), coalesce(sum(benefit) FILTER (WHERE day >= v_month), 0)
+    SELECT sum(pv) FILTER (WHERE day = v_day), coalesce(sum(saving) FILTER (WHERE day = v_day), 0),
+           sum(pv) FILTER (WHERE day >= v_week), coalesce(sum(saving) FILTER (WHERE day >= v_week), 0),
+           sum(pv) FILTER (WHERE day >= v_month), coalesce(sum(saving) FILTER (WHERE day >= v_month), 0)
            , coalesce(sum(export) FILTER (WHERE day = v_day), 0), sum(self_use) FILTER (WHERE day = v_day),
            coalesce(sum(export) FILTER (WHERE day >= v_week), 0), sum(self_use) FILTER (WHERE day >= v_week),
            coalesce(sum(export) FILTER (WHERE day >= v_month), 0), sum(self_use) FILTER (WHERE day >= v_month)
-    INTO pv_today, benefit_today, pv_week, benefit_week, pv_month, benefit_month,
+    INTO pv_today, saving_today, pv_week, saving_week, pv_month, saving_month,
          export_today, self_today, export_week, self_week, export_month, self_month
     FROM d;
     RETURN NEXT;

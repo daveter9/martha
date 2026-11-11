@@ -339,7 +339,7 @@ def views(ids):
                 "entities": [f"input_number.solar_{k}" for k in keys]}
 
     # Zonnepanelen (user's request, 2026-11-11): only the table Nu, Dag, Week and Maand as on
-    # the overviews (generation and net benefit, solar_home) and per day what went to the grid
+    # the overviews (generation, its split and the saving of the feed-in, solar_home) and per day what went to the grid
     # and what to the house, stacked.
     table = dashboards.now_table([
         (e("solar_home_pv_now"), "Nu"), (e("solar_growatt_power"), "_age:last_reported"),

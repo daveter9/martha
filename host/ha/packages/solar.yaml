@@ -73,7 +73,7 @@ sql:
     column: v
     query: SELECT round(benefit::numeric, 4) AS v FROM solar_totals() LIMIT 1;
 
-  # --- Page Zonnepanelen: generation and net benefit now, today, week, month (solar_home) --
+  # --- Page Zonnepanelen: generation, split and saving now, today, week, month (solar_home)
   - name: Zonnepanelen opwek nu
     unique_id: solar_home_pv_now
     icon: mdi:solar-power
@@ -82,12 +82,12 @@ sql:
     column: v
     query: SELECT round(pv_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen opbrengst nu
+  - name: Zonnepanelen besparing teruglevering nu
     unique_id: solar_home_benefit_now
     icon: mdi:cash-plus
     unit_of_measurement: €/u
     column: v
-    query: SELECT round(benefit_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
+    query: SELECT round(saving_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
   - name: Zonnepanelen opwek vandaag
     unique_id: solar_home_pv_today
@@ -97,12 +97,12 @@ sql:
     column: v
     query: SELECT round(pv_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen opbrengst vandaag
+  - name: Zonnepanelen besparing teruglevering vandaag
     unique_id: solar_home_benefit_today
     icon: mdi:cash-plus
     unit_of_measurement: €
     column: v
-    query: SELECT round(benefit_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
+    query: SELECT round(saving_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
   - name: Zonnepanelen opwek deze week
     unique_id: solar_home_pv_week
@@ -112,12 +112,12 @@ sql:
     column: v
     query: SELECT round(pv_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen opbrengst deze week
+  - name: Zonnepanelen besparing teruglevering deze week
     unique_id: solar_home_benefit_week
     icon: mdi:cash-plus
     unit_of_measurement: €
     column: v
-    query: SELECT round(benefit_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
+    query: SELECT round(saving_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
   - name: Zonnepanelen opwek deze maand
     unique_id: solar_home_pv_month
@@ -127,12 +127,12 @@ sql:
     column: v
     query: SELECT round(pv_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen opbrengst deze maand
+  - name: Zonnepanelen besparing teruglevering deze maand
     unique_id: solar_home_benefit_month
     icon: mdi:cash-plus
     unit_of_measurement: €
     column: v
-    query: SELECT round(benefit_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
+    query: SELECT round(saving_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
   - name: Zonnepanelen naar het net nu
     unique_id: solar_home_export_now
