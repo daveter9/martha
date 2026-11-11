@@ -138,10 +138,10 @@ NAMES = {
 }
 
 
-def views(ids, use_total=None):
+def views(ids, use_split=()):
     """The P1 pages: Gebruik woning for the dashboard Elektriciteit, Gas for Verwarming. Only
-    cards for sensors this meter actually has. 'use_total' is the use of the house wherever it
-    comes from (solar_total_use)."""
+    cards for sensors this meter actually has. 'use_split' are the use of the house from the
+    grid and from the panels (solar_total_import, solar_total_self_use)."""
     def named(*keys):
         return [(ids[k], NAMES.get(k)) for k in keys if k in ids]
 
@@ -154,13 +154,17 @@ def views(ids, use_total=None):
 
     # Gebruik woning and Gas (user's request, 2026-11-11): only the use, with a date picker
     # that starts on this week (per hour for a day, per day for a week or month). The use of
-    # the house is grid plus solar self-use (solar_total_use); without the panels the tariffs.
-    use = ([{"entity": use_total, "name": "Gebruik"}] if use_total else ents(used))
+    # the house is stacked: from the grid and from the panels in yellow (user's request,
+    # 2026-11-11); without the panels the tariffs.
+    split = [e for e, _ in use_split if e]
+    use = ([{"entity": use_split[0][0], "name": "Net"},
+            {"entity": use_split[1][0], "name": "PV", "color": "#fdd835"}]
+           if len(split) == 2 else ents(used))
     home = {"type": "sections", "max_columns": 4, "title": "Gebruik woning", "path": "gebruik-woning",
             "icon": "mdi:home-lightning-bolt", "sections": [{"type": "grid", "column_span": 4, "cards": [
                 {**c, "grid_options": {"columns": "full"}} for c in dashboards.picked("use", {
                     "type": "statistics-graph", "title": "Gebruik", "entities": use,
-                    "stat_types": ["change"], "chart_type": "bar" if use_total else "bar-stack"})]}]}
+                    "stat_types": ["change"], "chart_type": "bar-stack"})]}]}
     gas_page = {"type": "sections", "max_columns": 4, "title": "Gas", "path": "gas",
                 "icon": "mdi:meter-gas", "sections": [{"type": "grid", "column_span": 4, "cards": [
                     {**c, "grid_options": {"columns": "full"}} for c in dashboards.picked("gas", {

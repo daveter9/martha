@@ -207,6 +207,7 @@ def write_secret(key, value):
 # Energy totals (state_class total) whose statistics are filled from solar_1m: unique_id ->
 # kWh per minute. Their state is the sum since solar_start(), as these sums.
 BACKFILL = {"solar_total_use": "import_low + import_normal + coalesce(self_use, 0)",
+            "solar_total_import": "import_low + import_normal",
             "solar_total_export": "export_low + export_normal",
             "solar_total_self_use": "coalesce(self_use, 0)"}
 

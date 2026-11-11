@@ -37,7 +37,6 @@ HEADINGS = {
     ("electricity", "instellingen"): "Instellingen stroom",
     ("heating", "gas"): HEADINGS_GAS,
     ("heating", "berekening"): "Berekening",
-    ("heating", "aannames"): "Aannames",
     ("heating", "instellingen"): "Instellingen verwarming",
 }
 # Built-in panels hidden from the sidebar (C24). They stay loaded: the dashboards need history
@@ -141,7 +140,8 @@ def collect(ws, token):
     if entry:
         p1_ids = setup_p1.by_key(ws, entry)
         # Gebruik woning shows the use of the house, grid plus solar, when the panels are there.
-        p1 = setup_p1.views(p1_ids, use_total=solar.get("solar_total_use"))
+        p1 = setup_p1.views(p1_ids, use_split=[(solar.get("solar_total_import"), "Net"),
+                                               (solar.get("solar_total_self_use"), "PV")])
         out["electricity"] += p1["electricity"]
         out["heating"] += p1["gas"]
 
@@ -204,7 +204,8 @@ def write(ws, token):
     import setup_thermostat
     climate = setup_thermostat.climate_entity(ws, wait=0)
     if climate and write_resource(ws, "martha-thermostat-graph.js"):
-        extra["heating"] = setup_thermostat.extra(climate, heat_ids.get("heat_home_space_now"))
+        extra["heating"] = setup_thermostat.extra(climate, heat_ids.get("heat_home_space_now"),
+                                                  heat_ids.get("heat_outdoor_temperature"))
     # The page Gasmeter: first the last hour per meter report, split into heating and hot water
     # as the detection chose; the page is on Tapwater too (user's request, 2026-10-30).
     # A tap on it opens the page Gas verdeeld with the graph large, to zoom and move through

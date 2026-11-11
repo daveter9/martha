@@ -29,6 +29,16 @@ sql:
     # Grid plus solar self-use, for Gebruik per uur on Gebruik woning.
     query: SELECT round(use_house::numeric, 3) AS v FROM solar_totals() LIMIT 1;
 
+  - name: Stroom uit het net
+    unique_id: solar_total_import
+    icon: mdi:transmission-tower-export
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    # Both tariffs as one total, for Gebruik on Gebruik woning (stacked with the self-use).
+    query: SELECT round(import::numeric, 3) AS v FROM solar_totals() LIMIT 1;
+
   - name: Zonnepanelen teruglevering
     unique_id: solar_total_export
     icon: mdi:transmission-tower-import

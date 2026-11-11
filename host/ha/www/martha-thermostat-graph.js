@@ -1,19 +1,20 @@
-// The thermostat over the last hours in one graph: room temperature and setpoint on the left
-// axis (°C), gas for heating on the right axis (m³/h). HA's history-graph cannot combine a
+// The thermostat over the last hours in one graph: room temperature, setpoint and the outdoor
+// temperature on the left axis (°C), gas for heating on the right axis (m³/h). HA's history-graph cannot combine a
 // climate entity and a sensor, nor show a second y-axis (DESIGN.md, C25).
 //
 //   type: custom:martha-thermostat-graph
 //   climate: climate.x      (current_temperature and temperature attributes)
 //   gas: sensor.y           (gas for heating now, m³/h; optional)
+//   outdoor: sensor.z       (outdoor temperature, °C; optional)
 //   hours: 1                (range shown; default 24)
 //
 // History comes from HA's websocket (history/history_during_period, the recorder). New
 // states are added as they arrive; the graph is redrawn every minute, so it moves on with
 // time also when nothing changes, and the history is fetched again every 15 minutes.
 
-const W = 640, H = 280, L = 44, R = 52, T = 34, B = 26;   // size and margins (viewBox units)
+const W = 640, H = 290, L = 44, R = 52, T = 44, B = 26;   // size and margins (viewBox units)
 const MINUTE = 60e3, REFETCH = 15 * MINUTE;
-const COLORS = { temp: "#1e88e5", set: "#e8710a", gas: "#8e24aa" };
+const COLORS = { temp: "#1e88e5", set: "#e8710a", gas: "#8e24aa", out: "#43a047" };
 
 const fmt = (v, d) => v.toLocaleString("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
 
@@ -64,9 +65,10 @@ class MarthaThermostatGraph extends HTMLElement {
   }
 
   _live() {
-    const { climate, gas } = this._config;
+    const { climate, gas, outdoor } = this._config;
     const out = [[climate, (t, s) => this._addClimate(t, s.attributes)]];
-    if (gas) out.push([gas, (t, s) => this._addGas(t, s.state)]);
+    if (gas) out.push([gas, (t, s) => this._addValue("gas", t, s.state)]);
+    if (outdoor) out.push([outdoor, (t, s) => this._addValue("out", t, s.state)]);
     return out;
   }
 
@@ -76,28 +78,29 @@ class MarthaThermostatGraph extends HTMLElement {
     if (a.temperature != null && isFinite(set)) this._series.set.push([t, set]);
   }
 
-  _addGas(t, state) {
+  _addValue(series, t, state) {
     const v = Number(state);
-    if (state !== "" && state != null && isFinite(v)) this._series.gas.push([t, v]);
+    if (state !== "" && state != null && isFinite(v)) this._series[series].push([t, v]);
   }
 
   async _load() {
     this._loading = true;
-    const { climate, gas, hours } = this._config;
+    const { climate, gas, outdoor, hours } = this._config;
     const end = new Date(), start = new Date(end - hours * 3600e3);
     try {
       const res = await this._hass.callWS({
         type: "history/history_during_period", start_time: start.toISOString(),
-        end_time: end.toISOString(), entity_ids: gas ? [climate, gas] : [climate],
+        end_time: end.toISOString(), entity_ids: [climate, gas, outdoor].filter(Boolean),
         minimal_response: false, no_attributes: false, significant_changes_only: false,
       });
-      this._series = { temp: [], set: [], gas: [] };
+      this._series = { temp: [], set: [], gas: [], out: [] };
       this._seen = {};
       for (const st of res[climate] || []) {
         if (st.a) this._lastAttrs = st.a;
         this._addClimate(st.lu * 1000, st.a || this._lastAttrs || {});
       }
-      for (const st of (gas && res[gas]) || []) this._addGas(st.lu * 1000, st.s);
+      for (const st of (gas && res[gas]) || []) this._addValue("gas", st.lu * 1000, st.s);
+      for (const st of (outdoor && res[outdoor]) || []) this._addValue("out", st.lu * 1000, st.s);
       for (const [entity] of this._live()) {
         const s = this._hass.states[entity];
         if (s) this._seen[entity] = s.last_updated;
@@ -107,7 +110,7 @@ class MarthaThermostatGraph extends HTMLElement {
     } catch (e) {
       this._error = e.message || String(e);
       this._fetched = Date.now();   // try again at the next refetch, not on every state
-      this._series = this._series || { temp: [], set: [], gas: [] };
+      this._series = this._series || { temp: [], set: [], gas: [], out: [] };
     }
     this._loading = false;
     this._render();
@@ -134,8 +137,9 @@ class MarthaThermostatGraph extends HTMLElement {
     };
     const temp = clip(this._series.temp), set = clip(this._series.set);
     const gas = this._config.gas ? clip(this._series.gas) : [];
+    const out = this._config.outdoor ? clip(this._series.out) : [];
 
-    const temps = temp.concat(set).map((p) => p[1]);
+    const temps = temp.concat(set, out).map((p) => p[1]);
     const ty = temps.length ? nice(Math.min(...temps) - 0.5, Math.max(...temps) + 0.5, 12)
                             : { lo: 15, hi: 22, step: 1 };
     const gy = nice(0, Math.max(0.1, ...gas.map((p) => p[1])), 5);
@@ -175,9 +179,11 @@ class MarthaThermostatGraph extends HTMLElement {
     const legend = [
       ["Huidige temperatuur", last(temp), "°C", 1, COLORS.temp, ""],
       ["Doeltemperatuur", last(set), "°C", 1, COLORS.set, "4 3"],
+      ...(this._config.outdoor ? [["Buiten", last(out), "°C", 1, COLORS.out, ""]] : []),
       ...(this._config.gas ? [["Gas verwarming", last(gas), "m³/h", 2, COLORS.gas, ""]] : []),
     ].map(([name, v, unit, d, color, dash], i) =>
-      `<g transform="translate(${[0, 205, 372][i] + 8},14)"><line x1="0" x2="18" y1="0" y2="0" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`
+      // Two rows of two.
+      `<g transform="translate(${(i % 2) * 300 + 8},${14 + Math.floor(i / 2) * 18})"><line x1="0" x2="18" y1="0" y2="0" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`
       + `<text x="24" y="4">${name} <tspan font-weight="600">${v == null ? "–" : fmt(v, d)} ${unit}</tspan></text></g>`).join("");
 
     const gasArea = gas.length
@@ -197,6 +203,7 @@ class MarthaThermostatGraph extends HTMLElement {
         ${grid}${legend}
         ${gasArea}
         <path d="${steps(set, yT)}" fill="none" stroke="${COLORS.set}" stroke-width="2" stroke-dasharray="4 3"/>
+        ${out.length ? `<path d="${steps(out, yT)}" fill="none" stroke="${COLORS.out}" stroke-width="2"/>` : ""}
         <path d="${steps(temp, yT)}" fill="none" stroke="${COLORS.temp}" stroke-width="2.5"/>
         <text x="${L - 6}" y="${H - B + 16}" text-anchor="end" fill="${COLORS.temp}">°C</text>
         ${this._config.gas ? `<text x="${W - R + 6}" y="${H - B + 16}" fill="${COLORS.gas}">m³/h</text>` : ""}
@@ -208,4 +215,4 @@ class MarthaThermostatGraph extends HTMLElement {
 customElements.define("martha-thermostat-graph", MarthaThermostatGraph);
 window.customCards = window.customCards || [];
 window.customCards.push({ type: "martha-thermostat-graph", name: "Martha thermostaat",
-  description: "Temperatuur, ingestelde temperatuur en gas voor verwarming in één grafiek" });
+  description: "Temperatuur, ingestelde temperatuur, buitentemperatuur en gas voor verwarming in één grafiek" });

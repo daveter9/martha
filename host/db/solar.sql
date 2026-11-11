@@ -493,7 +493,7 @@ RETURNS TABLE (
     export_negative double precision, revenue_negative double precision,
     benefit double precision, cost_import double precision,
     cmp_cost_fixed double precision, cmp_cost_dynamic double precision,
-    use_house double precision)
+    use_house double precision, import double precision)
 LANGUAGE sql STABLE AS $$
     SELECT sum(self_use), sum(saving_self),
            sum(export_low + export_normal), coalesce(sum(revenue_export), 0),
@@ -504,7 +504,8 @@ LANGUAGE sql STABLE AS $$
            sum(cost_import),
            sum(cmp_cost_fixed), sum(cmp_cost_dynamic),
            -- The use of the house wherever it comes from: grid plus solar self-use.
-           sum(import_low + import_normal + coalesce(self_use, 0))
+           sum(import_low + import_normal + coalesce(self_use, 0)),
+           sum(import_low + import_normal)
     FROM solar_1d
     WHERE day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date
 $$;

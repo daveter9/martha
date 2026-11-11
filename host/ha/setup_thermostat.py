@@ -95,15 +95,17 @@ def climate_entity(ws, wait=60):
         time.sleep(2)
 
 
-def extra(entity, gas=None):
-    """Cards under the table on the overview of Verwarming: the room temperature and the
-    setpoint (left axis) and gas for heating now (right axis), over the last hour, in our
-    own card host/ha/www/martha-thermostat-graph.js."""
+def extra(entity, gas=None, outdoor=None):
+    """Cards under the table on the overview of Verwarming: the room temperature, the setpoint
+    and the outdoor temperature (left axis) and gas for heating now (right axis), over the
+    last hour, in our own card host/ha/www/martha-thermostat-graph.js."""
     if not entity:
         return []
     card = {"type": "custom:martha-thermostat-graph", "climate": entity, "hours": 1}
     if gas:
         card["gas"] = gas
+    if outdoor:
+        card["outdoor"] = outdoor
     return [card]
 
 

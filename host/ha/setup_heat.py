@@ -248,7 +248,6 @@ def views(ids, rows, gas_meter=None):
         graph("Warmtevraag per uur (48 uur)", ["heat_total_heat"], "hour", 2),
         {"type": "markdown", "title": "De formules", "content": FORMULAS},
     ]
-    assumptions = [md("Aannames en wat je kunt verfijnen", "heat_assumptions", "tabel")]
 
     by_key = {p["key"] for p in rows}
     # Tapwater (user's request, 2026-11-11): only the table Nu, Dag, Week, Maand as on the
@@ -301,9 +300,8 @@ def views(ids, rows, gas_meter=None):
     if not ids:
         return {"heating": [], "dhw": []}
     heating = [("Berekening", "berekening", "mdi:calculator-variant-outline", calculation),
-               ("Aannames", "aannames", "mdi:clipboard-list-outline", assumptions),
                ("Instellingen", "instellingen", "mdi:cog", settings)]
-    # Kosten and Prognose are not shown (user's request, 2026-11-11); their sensors stay.
+    # Kosten, Prognose and Aannames are not shown (user's request, 2026-11-11); their sensors stay.
     return {"heating": [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in heating],
             "dhw": [dhw] if dhw else []}
 
