@@ -16,7 +16,9 @@ Idempotent; each run:
      check_config, restart, health check, the previous files back on errors);
   6. creates the helpers (tariffs, investment, forecast, battery) that do not exist yet;
      existing helpers and their values are left alone;
-  7. writes the dashboards per domain (host/ha/dashboards.py): the solar tabs are on
+  7. fills the hourly statistics of the energy totals before HA's first one from solar_1m
+     (backfill_statistics), so a new total has its history in the graphs;
+  8. writes the dashboards per domain (host/ha/dashboards.py): the solar tabs are on
      Elektriciteit.
 
 With --inverter (phase 5, the Growatt through Modbus TCP on its ShineLink), also:
@@ -201,6 +203,55 @@ def write_secret(key, value):
     os.replace(SECRETS + ".tmp", SECRETS)
     m.log(f"{key} in {SECRETS}: {value}")
     return True
+
+
+# Energy totals (state_class total) whose statistics are filled from solar_1m: unique_id ->
+# kWh per minute. Their state is the sum since solar_start(), as these sums.
+BACKFILL = {"solar_total_export": "export_low + export_normal",
+            "solar_total_self_use": "coalesce(self_use, 0)"}
+
+
+def backfill_statistics(ws, ids):
+    """HA keeps statistics of a sensor only from when it exists: the feed-in of the day it
+    was added was missing from the graph (2026-11-11). Write every hour that has ended, from
+    the start, with the sum since the start from solar_1m. Where HA already has the hour its
+    state stays, since HA continues from the state and sum of the last row; hours that have
+    not ended are left to HA."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    hour = datetime.timedelta(hours=1)
+    for uid, expr in BACKFILL.items():
+        entity = ids.get(uid)
+        if not entity:
+            continue
+        meta = ws.call("recorder/get_statistics_metadata", statistic_ids=[entity])
+        if not meta:
+            continue
+        rows = m.psql(
+            f"SELECT extract(epoch FROM date_trunc('hour', minute))::bigint, sum({expr}) "
+            "FROM solar_1m WHERE minute >= solar_start() GROUP BY 1 ORDER BY 1")
+        hours, total = [], 0.0
+        for line in rows.splitlines():
+            t, v = line.split("|")
+            total += float(v or 0)
+            hours.append((datetime.datetime.fromtimestamp(int(t), datetime.timezone.utc), total))
+        if not hours:
+            continue
+        have = ws.call("recorder/statistics_during_period", statistic_ids=[entity],
+                       start_time=hours[0][0].isoformat(), period="hour",
+                       types=["state", "sum"]).get(entity, [])
+        state = {datetime.datetime.fromtimestamp(r["start"] / 1000, datetime.timezone.utc): r["state"]
+                 for r in have}
+        stats = [{"start": h.isoformat(), "state": state.get(h, round(c, 3)), "sum": round(c, 3)}
+                 for h, c in hours if h + hour <= now or h in state]
+        if not stats:
+            continue
+        md = meta[0]
+        ws.call("recorder/import_statistics", stats=stats, metadata={
+            "statistic_id": entity, "source": md["source"], "name": md.get("name"),
+            "has_mean": False, "mean_type": md.get("mean_type", 0), "has_sum": True,
+            "unit_of_measurement": md["statistics_unit_of_measurement"],
+            "unit_class": md.get("unit_class")})
+        m.log(f"statistics {entity}: {len(stats)} hours from solar_1m ({len(state)} kept HA's state)")
 
 
 def write_pv_roles(ws):
@@ -440,6 +491,7 @@ def main():
             write_pv_roles(ws)
         ids = sql_entities(ws)
         m.log(f"{len(ids)} solar sensors: " + ", ".join(sorted(ids.values())))
+        backfill_statistics(ws, ids)
         dashboards.write(ws, token)
     finally:
         ws.close()

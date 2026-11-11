@@ -263,8 +263,12 @@ Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.l
      teruglevering van de P1-meter (rol `export_power`), de periodes uit `solar_1d`. Linksboven
      hoe lang de laatste meting van de omvormer geleden is;
   2. per dag (30 dagen) een gestapelde balk met wat naar het net ging (`solar_total_export`) en
-     wat naar het huis (`solar_total_self_use`), uit HA's statistieken. De teruglevering heeft
-     pas statistieken vanaf 2026-11-11, toen de sensor erbij kwam.
+     wat naar het huis (`solar_total_self_use`), uit HA's statistieken. HA houdt statistieken
+     pas bij vanaf het moment dat een sensor bestaat; daardoor ontbrak de teruglevering van
+     de dag waarop die sensor erbij kwam (2026-11-11). `setup_solar.backfill_statistics()`
+     schrijft daarom bij elke run elk afgelopen uur van deze tellers opnieuw, met de som uit
+     `solar_1m` (`recorder/import_statistics`). Bij uren die HA al had, blijft HA's eigen
+     `state` staan, zodat HA daarna verder telt.
 
 ### Thermostaat (Honeywell Lyric T6, HomeKit)
 De kamerthermostaat is een Honeywell Lyric T6 met Apple HomeKit. Home Assistant praat er
