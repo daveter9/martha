@@ -12,7 +12,7 @@
 // states are added as they arrive; the graph is redrawn every minute, so it moves on with
 // time also when nothing changes, and the history is fetched again every 15 minutes.
 
-const W = 640, H = 290, L = 44, R = 52, T = 44, B = 26;   // size and margins (viewBox units)
+const W = 640, H = 400, L = 44, R = 52, T = 44, B = 26;   // size and margins (viewBox units)
 const MINUTE = 60e3, REFETCH = 15 * MINUTE;
 const COLORS = { temp: "#1e88e5", set: "#e8710a", gas: "#8e24aa", out: "#43a047" };
 
@@ -33,9 +33,9 @@ class MarthaThermostatGraph extends HTMLElement {
     this._series = null;
   }
 
-  getCardSize() { return 5; }
+  getCardSize() { return 7; }
 
-  getGridOptions() { return { columns: "full", min_rows: 4 }; }
+  getGridOptions() { return { columns: "full", min_rows: 6 }; }
 
   connectedCallback() {
     this._timer = setInterval(() => this._tick(), MINUTE);
@@ -163,7 +163,7 @@ class MarthaThermostatGraph extends HTMLElement {
     }
     // Time axis: a line per step and a label per 'label' minutes, by the range shown.
     const h = this._config.hours;
-    const [step, label] = h <= 1 ? [15, 15] : h <= 3 ? [15, 30] : h <= 12 ? [60, 60] : [60, 180];
+    const [step, label] = h <= 0.5 ? [5, 10] : h <= 1 ? [15, 15] : h <= 3 ? [15, 30] : h <= 12 ? [60, 60] : [60, 180];
     const first = new Date(t0); first.setMinutes(0, 0, 0);
     for (let t = first.getTime(); t <= now; t += step * MINUTE) {
       if (t <= t0) continue;

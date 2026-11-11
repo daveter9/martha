@@ -309,7 +309,7 @@ De koppelcode staat op de sticker en komt niet in de repo (die is publiek, C23).
 - **Gekoppeld op 2026-10-30** (na verbinden met de wifi via de app Honeywell Home):
   `climate.tstat_34040c_lyric_t6_thermostat`.
 - Op het overzicht van **Verwarming** staat onder de tabel **één grafiek** van het laatste
-  **uur** (verzoek van de gebruiker, 2026-10-30; tijdas en tijden per kwartier): links de *Huidige temperatuur*, de *Doeltemperatuur* en *Buiten* (de buitentemperatuur van `heat_outdoor_temperature`, groen; verzoek van de gebruiker, 2026-11-11) (°C),
+  **half uur**, extra hoog (verzoek van de gebruiker, 2026-10-30, en korter en hoger op 2026-11-11; tijden per 10 minuten): links de *Huidige temperatuur*, de *Doeltemperatuur* en *Buiten* (de buitentemperatuur van `heat_outdoor_temperature`, groen; verzoek van de gebruiker, 2026-11-11) (°C),
   op een **tweede y-as rechts** het gas voor verwarming nu (`heat_home_space_now`, m³/h,
   gemiddelde van het laatste kwartier). HA's history-graph kan een climate-entity en een sensor
   niet combineren en heeft één as, dus is dit een **eigen kaart**
