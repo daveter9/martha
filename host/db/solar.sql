@@ -510,9 +510,9 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- The table on the page Zonnepanelen: generation (= export + self_use), its split to the
--- grid (export) and to the house (self_use), and the saving of the feed-in now, today, this week (from Monday) and
--- this month. Saving = kWh to the grid x the import price of that minute (user's request,
--- 2026-11-11). Now: the last power of the inverter (W -> kW; unavailable at night counts as
+-- grid (export) and to the house (self_use), and the saving now, today, this week (from
+-- Monday) and this month. Saving = kWh to the house x the import price of that minute
+-- (saving_self; user's request, 2026-11-11). Now: the last power of the inverter (W -> kW; unavailable at night counts as
 -- 0) and of the feed-in, at the import price of now. The periods: the sum of the days in
 -- solar_1d (lags up to ~5 minutes).
 DROP FUNCTION IF EXISTS solar_home();
@@ -545,7 +545,7 @@ BEGIN
                           ORDER BY time DESC LIMIT 1), 0);
     v_tariff := (SELECT state FROM ltss WHERE entity_id = e_tariff AND state IN ('low', 'normal')
                  ORDER BY time DESC LIMIT 1);
-    saving_now := v_export * coalesce(solar_setting_now(CASE WHEN v_tariff = 'low' THEN 'import_low'
+    saving_now := greatest(v_pv - v_export, 0) * coalesce(solar_setting_now(CASE WHEN v_tariff = 'low' THEN 'import_low'
                                                             ELSE 'import_normal' END), 0);
     IF e_pv IS NOT NULL THEN
         pv_now := v_pv;
@@ -553,7 +553,7 @@ BEGIN
         self_now := greatest(v_pv - v_export, 0);
     END IF;
     WITH d AS (
-        SELECT day, pv, coalesce(saving_export, 0) AS saving,
+        SELECT day, pv, coalesce(saving_self, 0) AS saving,
                export_low + export_normal AS export, self_use
         FROM solar_1d
         WHERE day >= least(v_week, v_month) AND day <= v_day

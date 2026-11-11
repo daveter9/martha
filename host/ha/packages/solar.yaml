@@ -92,7 +92,7 @@ sql:
     column: v
     query: SELECT round(pv_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen besparing teruglevering nu
+  - name: Zonnepanelen besparing eigen gebruik nu
     unique_id: solar_home_benefit_now
     icon: mdi:cash-plus
     unit_of_measurement: €/u
@@ -107,7 +107,7 @@ sql:
     column: v
     query: SELECT round(pv_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen besparing teruglevering vandaag
+  - name: Zonnepanelen besparing eigen gebruik vandaag
     unique_id: solar_home_benefit_today
     icon: mdi:cash-plus
     unit_of_measurement: €
@@ -122,7 +122,7 @@ sql:
     column: v
     query: SELECT round(pv_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen besparing teruglevering deze week
+  - name: Zonnepanelen besparing eigen gebruik deze week
     unique_id: solar_home_benefit_week
     icon: mdi:cash-plus
     unit_of_measurement: €
@@ -137,7 +137,7 @@ sql:
     column: v
     query: SELECT round(pv_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
-  - name: Zonnepanelen besparing teruglevering deze maand
+  - name: Zonnepanelen besparing eigen gebruik deze maand
     unique_id: solar_home_benefit_month
     icon: mdi:cash-plus
     unit_of_measurement: €
