@@ -215,13 +215,23 @@ def write(ws, token):
             if split and page_:
                 page_["sections"][0]["cards"].insert(1, {
                     **split, "navigation_path": f"/{DASHBOARDS[key][0]}/gas-verdeeld"})
+    # Under the use on Elektriciteit: from the grid and from the panels (user's request,
+    # 2026-11-11); without the panels the use is all from the grid.
+    splits = {}
+    if solar_ids.get("solar_home_self_now"):
+        splits["electricity"] = [
+            (f"&nbsp;&nbsp;{label}", [(ids.get(f"{prefix}_now"), "Nu"), (ids.get(f"{prefix}_today"), "Vandaag"),
+                                      (ids.get(f"{prefix}_week"), "Deze week"),
+                                      (ids.get(f"{prefix}_month"), "Deze maand")])
+            for label, ids, prefix in (("uit net", heat_ids, "heat_home_import"),
+                                       ("uit pv", solar_ids, "solar_home_self"))]
     for key, (path, title, icon) in DASHBOARDS.items():
         if not views[key]:
             continue
         pages = views[key]
         # Progressive disclosure: an overview, the pages as subviews that go back to it.
         first = overview(path, title, pages, home.get(key, []), extra.get(key, []),
-                         TABLES.get(key))
+                         TABLES.get(key), splits.get(key, ()))
         views[key] = [titled(first, (title, ""), START)] + [
             {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
              "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
@@ -317,15 +327,15 @@ def write_energy(ws, p1, solar):
         m.log(f"energy settings: {len(wanted)} sources (grid per tariff" + (", solar)" if len(wanted) > 2 else ")"))
 
 
-def overview(path, title, subviews, values, extra=(), table=None):
+def overview(path, title, subviews, values, extra=(), table=None, split=()):
     """Progressive disclosure (C25): a dashboard opens on an overview with its use now and
     today and a button per page; the pages are subviews (no tab bar, a back arrow). With
     'table' (the unit labels of the use and the costs row) the use is a table instead of
-    blocks (now_table)."""
+    blocks (now_table), with the extra rows 'split'."""
     buttons = [{"type": "button", "name": v["title"], "icon": v.get("icon"), "show_state": False,
                 "tap_action": {"action": "navigate", "navigation_path": f"/{path}/{v['path']}"}}
                for v in subviews]
-    top = now_table(values, *table) if table else now_today(values, horizontal=True)
+    top = now_table(values, *table, split=split) if table else now_today(values, horizontal=True)
     cards = [top, *extra,
              {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
     return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",

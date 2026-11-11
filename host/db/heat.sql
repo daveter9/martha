@@ -856,7 +856,9 @@ RETURNS TABLE (elec_today double precision, gas_space_now double precision,
                gas_dhw_week double precision, gas_dhw_month double precision,
                space_cost_week double precision, space_cost_month double precision,
                dhw_cost_week double precision, dhw_cost_month double precision,
-               elec_now double precision)
+               elec_now double precision,
+               import_now double precision, import_today double precision,
+               import_week double precision, import_month double precision)
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
     v_day    date := (now() AT TIME ZONE 'Europe/Amsterdam')::date;
@@ -914,6 +916,11 @@ BEGIN
                   ORDER BY time DESC LIMIT 1), 0) / 1000
         - coalesce((SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_export
                     ORDER BY time DESC LIMIT 1), 0), 0);
+    -- From the grid alone (the row 'uit net' on Elektriciteit); 'uit pv' is solar_home().
+    import_now := coalesce(v_power, 0);
+    import_today := elec_today;
+    import_week := elec_week;
+    import_month := elec_month;
     elec_now := coalesce(v_power, 0) + v_self;
     elec_today := elec_today + coalesce(
         (SELECT sum(self_use) FROM solar_1d WHERE solar_1d.day = v_day), 0);
