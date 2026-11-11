@@ -505,8 +505,8 @@ LANGUAGE sql STABLE AS $$
     WHERE day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date
 $$;
 
--- The table on the page Zonnepanelen: generation, its split to the grid (export) and to the
--- house (self_use), and the saving of the feed-in now, today, this week (from Monday) and
+-- The table on the page Zonnepanelen: generation (= export + self_use), its split to the
+-- grid (export) and to the house (self_use), and the saving of the feed-in now, today, this week (from Monday) and
 -- this month. Saving = kWh to the grid x the import price of that minute (user's request,
 -- 2026-11-11). Now: the last power of the inverter (W -> kW; unavailable at night counts as
 -- 0) and of the feed-in, at the import price of now. The periods: the sum of the days in
@@ -563,6 +563,13 @@ BEGIN
     INTO pv_today, saving_today, pv_week, saving_week, pv_month, saving_month,
          export_today, self_today, export_week, self_week, export_month, self_month
     FROM d;
+    -- The generation is where it went: to the grid plus to the house, so the split adds up to
+    -- 100% (user's request, 2026-11-11). Before the inverter was linked only the feed-in is
+    -- known, and pv would miss what went to the grid then.
+    pv_now := export_now + self_now;
+    pv_today := export_today + coalesce(self_today, 0);
+    pv_week := export_week + coalesce(self_week, 0);
+    pv_month := export_month + coalesce(self_month, 0);
     RETURN NEXT;
 END $$;
 
