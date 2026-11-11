@@ -258,7 +258,7 @@ Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.l
   *Zonnepanelen* en *Instellingen*. *Omvormer*, *Investering*, *Overschot* en *Contract* staan er
   niet meer op, en bij *Instellingen* ook niet de helpers van het dynamische contract. De
   sensoren, helpers en berekeningen erachter blijven bestaan.
-- **De pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11) toont alleen drie dingen, onder
+- **De pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11) toont alleen twee dingen, onder
   een titel zonder ondertitel,
   en wijkt dus af van de vaste indeling (C25):
   1. de tabel *Nu*, *Dag*, *Week*, *Maand* zoals op de overzichten (`now_table()`): `kWh` =
@@ -268,16 +268,19 @@ Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.l
      met de prijs van nu). Uit `solar_home()`: *Nu* uit het laatste vermogen van de omvormer en de
      teruglevering van de P1-meter (rol `export_power`), de periodes uit `solar_1d`. Linksboven
      hoe lang de laatste meting van de omvormer geleden is. Onder *Opwek kWh* staat de verdeling: *naar net* (teruglevering) en *naar huis* (eigen gebruik), met *Nu* in kW (verzoek van de gebruiker, 2026-11-11; extra rijen via `split` van `now_table()`);
-  2. per dag (30 dagen) een gestapelde balk met wat naar het net ging (`solar_total_export`) en
-     wat naar het huis (`solar_total_self_use`), uit HA's statistieken. HA houdt statistieken
+  2. HA's datumkiezer (`energy-date-selection`): staat standaard op vandaag, met knoppen voor
+     dag, week, maand en jaar en pijlen om te bladeren (verzoek van de gebruiker, 2026-11-11).
+     Hij stuurt de twee grafieken eronder (`energy_date_selection`). Eerst *Opwek*: een
+     gestapelde balk met wat naar het net ging (`solar_total_export`) en wat naar het huis
+     (`solar_total_self_use`), per uur bij een dag, per dag bij een week of maand, per maand bij
+     een jaar, uit HA's statistieken. HA houdt statistieken
      pas bij vanaf het moment dat een sensor bestaat; daardoor ontbrak de teruglevering van
      de dag waarop die sensor erbij kwam (2026-11-11). `setup_solar.backfill_statistics()`
      schrijft daarom bij elke run elk afgelopen uur van deze tellers opnieuw, met de som uit
      `solar_1m` (`recorder/import_statistics`). Bij uren die HA al had, blijft HA's eigen
      `state` staan, zodat HA daarna verder telt.
-  3. het vermogen van de omvormer over één dag: HA's datumkiezer (`energy-date-selection`,
-     staat standaard op vandaag) met een statistics-graph met `energy_date_selection`, uit de
-     5-minutenstatistieken (zo lang bewaard als de recorder zijn states bewaart).
+     Dan het vermogen van de omvormer over de gekozen periode, uit de 5-minutenstatistieken
+     (zo lang bewaard als de recorder zijn states bewaart).
 
 ### Thermostaat (Honeywell Lyric T6, HomeKit)
 De kamerthermostaat is een Honeywell Lyric T6 met Apple HomeKit. Home Assistant praat er
