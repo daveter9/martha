@@ -249,17 +249,19 @@ def write(ws, token):
             m.log(f"removed old dashboard /{path}")
     shown = [k for k in DASHBOARDS if views[k]]
     write_sidebar(ws, [DASHBOARDS[k][0] for k in shown])
-    # On the start screen under Elektriciteit (user's request, 2026-11-11): the generation now,
-    # and today's use from the grid and from the panels with their share.
-    more = {}
-    if solar_ids.get("solar_home_pv_now"):
-        use_today = heat_ids.get("heat_home_elec_today")
-        day = [f"{label} {value(e)}" + (share_of(e, use_today, " ") if use_today else "")
-               for label, e in (("uit net", heat_ids.get("heat_home_import_today")),
-                                ("uit pv", solar_ids.get("solar_home_self_today"))) if e]
-        more[DASHBOARDS["electricity"][0]] = {
-            "Nu": [f"opwek {value(solar_ids['solar_home_pv_now'])}"], "Dag": day}
-    write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown], more)   # last: it may restart HA
+    # On the start screen under Elektriciteit (user's request, 2026-11-11): the generation now
+    # under the costs; under today's use the share from the grid and from the panels, then
+    # the costs.
+    more, under_use = {}, {}
+    use_today = heat_ids.get("heat_home_elec_today")
+    if solar_ids.get("solar_home_pv_now") and use_today:
+        path = DASHBOARDS["electricity"][0]
+        more[path] = {"Nu": [f"opwek {value(solar_ids['solar_home_pv_now'])}"]}
+        under_use[path] = {"Dag": [f"{label} {percent(e, use_today)}"
+                                   for label, e in (("net", heat_ids.get("heat_home_import_today")),
+                                                    ("pv", solar_ids.get("solar_home_self_today"))) if e]}
+    write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown], more,
+                under_use)   # last: it may restart HA
 
 
 def gas_split_page(card, path):
@@ -449,16 +451,24 @@ def now_table(values, use_unit, cost_unit, split=()):
             "content": f'<table align="center">{head}{row(use_unit, 1)}{extra}{row(cost_unit, 2)}</table>'}
 
 
-def share_of(part, whole, sep="<br>"):
+def share_of(part, whole):
     """Jinja: '<br><small>(42%)</small>', the share of 'part' in 'whole', or nothing when
-    the whole is not a number above 0. 'sep' goes before it."""
+    the whole is not a number above 0."""
     return ("{%% set p = states('%(p)s') %%}{%% set w = states('%(w)s') %%}"
             "{%% if p | is_number and w | is_number and w | float > 0 %%}"
-            "%(s)s<small>({{ (100 * p | float / w | float) | round(0) | int }}%%)</small>"
-            "{%% endif %%}") % {"p": part, "w": whole, "s": sep}
+            "<br><small>({{ (100 * p | float / w | float) | round(0) | int }}%%)</small>"
+            "{%% endif %%}") % {"p": part, "w": whole}
 
 
-def now_today(values, horizontal=False, labels=None, more=None):
+def percent(part, whole):
+    """Jinja: the share of 'part' in 'whole' as '42%', or '–'."""
+    return ("{%% set p = states('%(p)s') %%}{%% set w = states('%(w)s') %%}"
+            "{%% if p | is_number and w | is_number and w | float > 0 %%}"
+            "{{ (100 * p | float / w | float) | round(0) | int }}%%{%% else %%}–{%% endif %%}"
+            ) % {"p": part, "w": whole}
+
+
+def now_today(values, horizontal=False, labels=None, more=None, under_use=None):
     """Use and costs now and today (C25), as the user asked:
 
         **Nu**          **Dag**         **Week**        **Maand**
@@ -468,14 +478,14 @@ def now_today(values, horizontal=False, labels=None, more=None):
 
     'values' are (entity_id, name) with the names of BLOCKS; a block without values is left
     out. 'labels' limits the blocks (Thuis shows only Nu and Dag); 'more' are extra lines per
-    block label, under the use and the costs."""
+    block label, under the use and the costs; 'under_use' extra lines between the two."""
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
     blocks = []
     for label, use, cost in BLOCKS:
         if labels and label not in labels:
             continue
-        lines = [value(by[k]) for k in (use, cost) if k in by] + list((more or {}).get(label, ()))
+        lines = ([value(by[use])] if use in by else []) + list((under_use or {}).get(label, ()))             + ([value(by[cost])] if cost in by else []) + list((more or {}).get(label, ()))
         # How long ago the measurement behind 'Nu' is: small, at the bottom of the Nu block.
         if label == "Nu" and lines and age:
             lines.append(f"<small>{ago(*age)}</small>")
@@ -489,7 +499,7 @@ def now_today(values, horizontal=False, labels=None, more=None):
     return {"type": "markdown", "content": "\n\n".join(blocks)}
 
 
-def write_start(ws, dashboards, more=None):
+def write_start(ws, dashboards, more=None, under_use=None):
     """The start screen (C25): per dashboard a button, with its use now and today under it,
     as the default panel for everyone instead of HA's generated home screen (weather,
     devices). 'dashboards' are (url_path, title, icon, [(entity_id, name), ...]).
@@ -506,7 +516,8 @@ def write_start(ws, dashboards, more=None):
     # costs. A markdown card, because it can hold all of that and still has a tap action.
     buttons = []
     for path, title, icon, values in dashboards:
-        body = now_today(values, labels=("Nu", "Dag"), more=(more or {}).get(path))
+        body = now_today(values, labels=("Nu", "Dag"), more=(more or {}).get(path),
+                         under_use=(under_use or {}).get(path))
         content = (f'<center><ha-icon icon="{icon}"></ha-icon><br><b>{title}</b>'
                    + ("<br><br>" + body["content"].replace("\n\n", "<br><br>") if body else "")
                    + "</center>")
