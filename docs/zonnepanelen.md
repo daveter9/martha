@@ -59,7 +59,7 @@ Ontwerpkeuzes voor de bouw in HA, genomen met de gebruiker op 2026-10-12 (uitwer
 
 | # | Beslissing | Afgewezen alternatieven |
 |---|---|---|
-| Z6 | **De Growatt wordt lokaal gelezen met Grott**, via de ShineLAN-X. | Modbus RS485: een kabel naar de omvormer, en hij botst met de RS485-meter van een latere Growatt-batterij. Growatt-cloud: alleen met internet (C1a). |
+| Z6 | **De Growatt wordt lokaal gelezen via Modbus TCP op zijn ShineLink** (keuze van de gebruiker, 2026-11-11; eerder: Grott via de ShineLAN-X). De ingebouwde Modbus-integratie van HA leest de stick elke 10 s; de stick blijft ongewijzigd naar de Growatt-cloud sturen, dus de app werkt door. Grott: de stick moet naar martha wijzen, standaard eens per 5 minuten, en nooit met de echte stick getest. | Modbus RS485: een kabel naar de omvormer, en hij botst met de RS485-meter van een latere Growatt-batterij. Growatt-cloud: alleen met internet (C1a). |
 | Z7 | **Tarieven en investeringsgegevens zijn helpers in HA**; LTSS bewaart elke wijziging. | Een tabel in de database (wijzigen via de repo). Een correctietabel ernaast. |
 | Z8 | **De rekenlaag is een tabel per minuut** (`solar_1m`). | Per kwartier (minder rijen, sluit aan op de prijzen). Alleen views (traag over jaren). |
 | Z9 | **Perioden via HA-statistieken**: SQL-sensoren geven lopende totalen, HA maakt er statistieken van. | Begin- en einddatum-helpers. |
@@ -208,8 +208,31 @@ niet: wijzig het op de dag dat het ingaat.
   komen exact overeen met de API van Nord Pool. Beide jobs draaien zonder fouten.
   `solar_1m` blijft leeg tot de startdatum (2026-10-23).
 
-### Zoals gebouwd: omvormer (fase 5, voorbereid op 2026-10-13)
-Gebouwd en getest zonder omvormer; met de echte ShineLAN-X is het nog niet getest.
+### Zoals gebouwd: omvormer via Modbus TCP (fase 5, 2026-11-11)
+- De datalogger is een **ShineLink** op de LAN (`espressif` in de Fritzbox), met een vast IP-adres
+  (DHCP-reservering, nu 192.168.178.49). Hij beantwoordt **Modbus TCP op poort 502** met de
+  registers van de omvormer (unit 1), naast zijn eigen verbinding met de Growatt-cloud.
+- `packages/solar_growatt.yaml` leest met de ingebouwde **Modbus-integratie** de input-registers
+  0–124 van het Growatt-protocol: Pac (35–36, 0,1 W) elke 10 s; Eac vandaag (53–54) en totaal
+  (55–56, 0,1 kWh), strings (3/4 en 7/8), frequentie (37, 0,01 Hz), netspanning (38),
+  temperatuur (93) en status (0) elke 30 s. Nagelezen op 2026-11-11 tegen de P1-meter: 282 W
+  opwek bij 0,24 kW teruglevering, totaal 0,3 kWh (nieuwe installatie). De registers 3000–3124
+  (TL-X) bevatten dezelfde waarden.
+- De sensoren houden de unique_id's van de Grott-versie (`solar_growatt_*`), zodat de rollen
+  `pv_power` en `pv_total`, het energiedashboard, de stroomkaart en *Omvormer* niet veranderen.
+  `sql_entities()` neemt daarvoor ook het platform `modbus` mee. *Growatt status* is een
+  template op de statuscode (*uit* als de omvormer 's nachts niet antwoordt). *Laatste bericht*
+  bestaat niet meer.
+- Het IP-adres staat in `/etc/martha/inverter` (`setup_solar.py --inverter --host <ip>`, één
+  keer) en daaruit als `martha_growatt_host` in `secrets.yaml`. `deploy.ps1` draait
+  `--inverter` zodra `/etc/martha/inverter` bestaat.
+- 's Nachts staat de omvormer uit: de sensoren zijn dan *unavailable*; `solar_pv` telt een gat
+  van meer dan 15 minuten als 0 W.
+- De Grott-code hieronder (services, `host/grott`) wordt niet meer gebruikt; de services starten
+  niet zonder `/etc/martha/grott.ini`.
+
+### Eerder gebouwd: omvormer via Grott (fase 5, voorbereid op 2026-10-13, niet in gebruik)
+Gebouwd en getest zonder omvormer; met de echte stick nooit getest. Vervangen door Modbus TCP.
 
 - **Grott in proxy-modus verwerkt niets zonder internet.** Als Grott Growatt niet bereikt,
   sluit hij de verbinding met de datalogger, en wordt er niets gedecodeerd
@@ -265,7 +288,7 @@ opwek (doel 1, en het deel van doel 3 en 5 dat daarop rust) hebben de omvormer n
 | 2 | **Rekenlaag op P1:** helpers voor tarieven, `solar_1m` en de job (opwek nog leeg), lopende totalen, energiedashboard (net), dashboard voor doel 2 (teruglevering, terugleverkosten, teruglevering tegen een negatieve prijs) en V1 | nee | Dag- en maandsommen van inkoop en teruglevering kloppen met de P1-tellers. |
 | 3 | **Overschot en simulatie (doel 4):** overschot per uur van de dag, `solar_simulate_battery` | nee | Een simulatie is voor één dag met de hand nagerekend. |
 | 4 | **Investering en voorspelling (doel 3 en 5):** helpers, PVGIS-referentie, Forecast.Solar, `solar_payback`, NPV en IRR. Tot fase 5 rekent de voorspelling met een aangenomen eigengebruik %. | nee | Terugverdientijd en IRR zijn met de hand nagerekend. |
-| 5 | **Omvormer:** vast IP, Grott, webhook-sensoren, opwek en eigen gebruik in `solar_1m`, doel 1, zonnepanelen in het energiedashboard. *Voorbereid (2026-10-13), nog te testen met de stick.* | ja | Opwek komt binnen in HA en `ltss_1m`, ook als de internetverbinding eruit is. De Growatt-app werkt nog. Dagsommen kloppen met de Growatt-dagteller. |
+| 5 | **Omvormer:** vast IP van de ShineLink, Modbus TCP, opwek en eigen gebruik in `solar_1m`, doel 1, zonnepanelen in het energiedashboard. *Gebouwd op 2026-11-11 (eerst voorbereid met Grott).* | ja | Opwek komt binnen in HA en `ltss_1m`, ook als de internetverbinding eruit is. De Growatt-app werkt nog. Dagsommen kloppen met de Growatt-dagteller. |
 | 6 | **Sturen (doel 6)**, alleen als fase 2 laat zien dat het loont | ja | Nog te ontwerpen. |
 
 **Gevolg:** tot fase 5 staat de opwek alleen in de Growatt-cloud, niet op

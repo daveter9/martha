@@ -243,7 +243,10 @@ config-flow-API en de websocket met het root-token:
 
 ### Zonnepanelen
 Eisen, beslissingen (Z1–Z10) en ontwerp: [docs/zonnepanelen.md](docs/zonnepanelen.md). In het
-kort: een Growatt MIN 3000TL-XH met ShineLAN-X, lokaal gelezen door **Grott als systemd-service**
+kort: een Growatt MIN 3000TL-XH met een ShineLink op de LAN, sinds 2026-11-11 lokaal gelezen door
+de ingebouwde **Modbus-integratie** van HA (Modbus TCP op de stick, poort 502, vast IP; keuze van
+de gebruiker, zie Z6). De stick stuurt daarnaast gewoon naar de Growatt-cloud. Eerder gepland:
+**Grott als systemd-service**
 op martha. Dat is geen container, dus C6 blijft gelden; de broncode gaat mee in de bundle (C1),
 maar staat niet in git (C23). Grott stuurt naar een webhook van HA. Zonder internet stuurt
 `martha_grott.py` de datalogger door naar een lokale grottserver (alleen op localhost), omdat
@@ -310,8 +313,8 @@ alleen productie.
   2. leest de vorige deploy-commit uit `/var/lib/martha/deployed`, en kiest uit de diff sindsdien
      of er ook een database-dump komt (`host/db/` of een setup-script gewijzigd) en welke
      setup-scripts draaien. Is de vorige deploy onbekend, dan wel een dump en geen scripts,
-     tenzij `-Setup` ze noemt. `setup_solar` draait met `--inverter` als `/etc/martha/grott.ini`
-     bestaat. De dashboards draaien alleen apart als er geen ander script draait (elk script
+     tenzij `-Setup` ze noemt. `setup_solar` draait met `--inverter` als `/etc/martha/inverter`
+     bestaat (het IP-adres van de ShineLink). De dashboards draaien alleen apart als er geen ander script draait (elk script
      schrijft ze aan het eind);
   3. kopieert alleen `host/` met `scp` naar `~/martha-deploy` (geen `offline/`);
   4. draait `host/deploy.sh` met sudo in een sessie met terminal (`ssh -tt`). De andere

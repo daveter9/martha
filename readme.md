@@ -334,31 +334,23 @@ Daarna, met de hand:
    `input_number.solar_import_low` en `input_number.solar_import_normal`, en voor teruglevering
    (tarief 1 en 2) met `input_number.solar_feed_in`.
 
-#### Omvormer (Growatt via Grott)
+#### Omvormer (Growatt via Modbus TCP)
 
-De Growatt MIN 3000TL-XH stuurt via zijn ShineLAN-X naar martha in plaats van rechtstreeks
-naar Growatt. Grott op martha stuurt alles door naar Growatt (de app blijft werken) en geeft
-elke meting aan HA. Zonder internet neemt een lokale grottserver het over, zodat de metingen
-blijven binnenkomen.
+De Growatt MIN 3000TL-XH wordt gelezen via zijn ShineLink op de LAN: HA's Modbus-integratie
+vraagt de omvormer elke 10 seconden uit (Modbus TCP, poort 502). De stick blijft naar Growatt
+sturen, dus de app werkt door.
 
-1. Geef martha een **vast IP-adres** (DHCP-reservering in de router): de stick kent geen
-   `martha.local`.
-2. Zorg dat de bundle Grott bevat (`1. download\download.ps1` haalt het op naar
-   `offline\grott`) en installeer opnieuw.
-3. Draai:
+1. Geef de ShineLink een **vast IP-adres** (DHCP-reservering in de router).
+2. Draai één keer, met dat IP-adres:
 
    ```bash
-   ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_solar.py --inverter
+   ssh -t david@martha.local sudo python3 /usr/local/lib/martha/setup_solar.py --inverter --host 192.168.178.49
    ```
 
-   Dit voegt een webhook-secret toe aan `secrets.yaml`, zet `packages/solar_growatt.yaml`
-   neer, schrijft `/etc/martha/grott.ini`, start `martha-grottserver` en `martha-grott`, en
-   voegt het tabblad **Omvormer** toe aan het dashboard.
-4. Zet in de webinterface van de ShineLAN-X (op het IP-adres van de stick) het
-   **serveradres** op het IP-adres van martha, poort 5279.
-5. Controleer: `journalctl -fu martha-grott` toont binnenkomende berichten, en
-   **Zonnepanelen → Omvormer** toont het vermogen.
-6. Voeg in het energiedashboard bij **Zonnepanelen** de sensor *Growatt opwek totaal* toe.
+   Dit schrijft het adres naar `/etc/martha/inverter` en `secrets.yaml`, zet
+   `packages/solar_growatt.yaml` neer, koppelt opwek en totaal aan de berekeningen, en voegt
+   de pagina **Omvormer** toe. Daarna draait `deploy.ps1` het vanzelf met `--inverter`.
+3. Controleer: **Elektriciteit → Omvormer** toont het vermogen, en de stroomkaart de opwek.
 
 ### Warmtepomp (CV-ketel tegen warmtepomp)
 
