@@ -45,7 +45,7 @@ HEADINGS = {
     ("heating", "prognose"): ("Prognose per jaar", "Kosten met een gemiddeld jaar, en het warmteverlies van het huis"),
     ("heating", "aannames"): ("Aannames", "Waar de berekening op rust en wat je kunt verfijnen"),
     ("heating", "instellingen"): ("Instellingen verwarming", "Prijzen, huis en ketel, en de warmtepomp"),
-    ("dhw", "tapwater"): ("Tapwater", "Gas en kosten voor warm water: CV-ketel tegen warmtepomp"),
+    ("dhw", "tapwater"): ("Tapwater", ""),
     ("dhw", "gas"): HEADINGS_GAS,
 }
 # Built-in panels hidden from the sidebar (C24). They stay loaded: the dashboards need history
@@ -142,7 +142,7 @@ def collect(ws, token):
 
     out["electricity"] += setup_solar.views(solar)
     if rows:
-        h = setup_heat.views(heat, rows)
+        h = setup_heat.views(heat, rows, p1_ids.get("gas_meter_reading"))
         out["heating"] += h["heating"]
         out["dhw"] += h["dhw"]
     # Start screen and overviews: use and costs now and today (heat_home in heat.sql).

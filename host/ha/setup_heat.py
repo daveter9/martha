@@ -222,9 +222,10 @@ def backfill_gas_market():
     m.log(f"EnergyZero: {len(rows)} hourly gas prices ({rows[0][0]} .. {rows[-1][0]})")
 
 
-def views(ids, rows):
+def views(ids, rows, gas_meter=None):
     """The heat views: the comparison on the dashboard Verwarming, hot water on Tapwater
-    (host/ha/dashboards.py)."""
+    (host/ha/dashboards.py). 'gas_meter' is the P1 gas meter, for the age of the measurement
+    in the table on Tapwater."""
     def e(uid):
         return ids.get(uid)
 
@@ -300,29 +301,27 @@ def views(ids, rows):
     assumptions = [md("Aannames en wat je kunt verfijnen", "heat_assumptions", "tabel")]
 
     by_key = {p["key"] for p in rows}
-    dhw = dashboards.page(
-        "Tapwater", "tapwater", "mdi:shower-head",
-        usage=[(e("heat_total_gas_dhw"), "Gas tapwater")], costs=costs("dhw"),
-        details=[
-            per_day,
-            full(md("Per jaar: verwarming en tapwater", "heat_forecast", "tabel_splitsing")),
-            {"type": "entities", "title": "Tot nu toe: tapwater", "entities": [
-                e("heat_total_gas_dhw"),
-                {"type": "attribute", "entity": e("heat_loss"), "attribute": "warm_water_m3_per_dag",
-                 "name": "Gemiddeld per dag", "suffix": "m³"},
-                e("heat_dhw_cv"), e("heat_dhw_wp"), e("heat_dhw_cv_mkt"), e("heat_dhw_wp_mkt")]},
-            {"type": "markdown", "content":
-                "Het gas voor **warm water** (douchen, kraan) wordt afgeleid uit je werkelijke verbruik: de "
-                "combiketel stookt voor tapwater kort en vol. Een reeks gasmeldingen vanaf het ingestelde "
-                "*vermogen* die niet langer duurt dan *hooguit zo lang*, of een losse melding, telt als warm "
-                "water; de rest is verwarming.\n\n"
-                "**Kosten:** met de CV-ketel het gas voor warm water maal de gasprijs. Met de warmtepomp de "
-                "stroom voor warm water (warmte / COP bij de ingestelde *temperatuur warm water*) maal de "
-                "stroomprijs; het zonne-overschot van die minuut wordt naar verhouding verdeeld over "
-                "verwarming en tapwater. Vaste kosten tellen niet mee: die staan op *Verwarming → Kosten*."},
-            {"type": "entities", "title": "Herkenning en rendement (geldt voor alle historie)",
-             "entities": [f"input_number.heat_{k}" for k in DHW_KEYS if k in by_key]},
-        ])
+    # Tapwater (user's request, 2026-11-11): only the table Nu, Dag, Week, Maand as on the
+    # overviews, and the gas per hour of today as before.
+    table = dashboards.now_table([
+        (e("heat_home_dhw_now"), "Nu"), (gas_meter, "_age:last_changed"),
+        (e("heat_home_dhw_cost_now"), "Kosten nu"),
+        (e("heat_home_dhw_today"), "Vandaag"), (e("heat_home_dhw_cost_today"), "Kosten vandaag"),
+        (e("heat_home_dhw_week"), "Deze week"), (e("heat_home_dhw_cost_week"), "Kosten deze week"),
+        (e("heat_home_dhw_month"), "Deze maand"), (e("heat_home_dhw_cost_month"), "Kosten deze maand"),
+    ], *dashboards.TABLES["dhw"])
+    cards = [table] if table else []
+    if e("heat_total_gas_dhw"):
+        # HA's date picker starts on today and steps through the days, as the power on
+        # Zonnepanelen.
+        cards += [{"type": "energy-date-selection"},
+                  {"type": "statistics-graph", "title": "Tapwater per uur", "chart_type": "bar",
+                   "entities": [{"entity": e("heat_total_gas_dhw"), "name": "Gas tapwater"}],
+                   "stat_types": ["change"], "period": "hour", "energy_date_selection": True}]
+    dhw = {"type": "sections", "max_columns": 4, "title": "Tapwater", "path": "tapwater",
+           "icon": "mdi:shower-head",
+           "sections": [{"type": "grid", "column_span": 4, "cards": [full(c) for c in cards]}]
+           } if cards else None
     grouped = {k for _, keys in GROUPS for k in keys} | set(DHW_KEYS)
     missing = sorted(by_key - grouped)
     settings = []
