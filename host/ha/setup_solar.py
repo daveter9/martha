@@ -364,6 +364,21 @@ def views(ids):
             "type": "statistics-graph", "title": "Vermogen", "chart_type": "line",
             "entities": [{"entity": e("solar_growatt_power"), "name": "Opwek"}],
             "stat_types": ["mean"]})
+    # At the bottom a short summary since the panels deliver (user's request, 2026-11-11):
+    # nothing went to the grid before 2026-11-11, so the totals since the start date are the
+    # totals since then. Generation = to the grid + to the house; saving = to the house x the
+    # price of its minute.
+    total = [e("solar_total_export"), e("solar_total_self_use"), e("solar_total_saving_self")]
+    if all(total):
+        ex, house, saving = total
+        rows = [("Opwek", f"{dashboards.number_sum(ex, house)} kWh"),
+                ("Teruggeleverd aan het net", f"{dashboards.number(ex)} kWh"),
+                ("Gebruikt in het huis", f"{dashboards.number(house)} kWh"),
+                ("Besparing", f"{dashboards.number(saving)} €")]
+        cards.append({"type": "markdown", "content":
+            "**Sinds 11-11-2026**\n\n<table>" + "".join(
+                f'<tr><td>{label}</td><td align="right">{v}</td></tr>' for label, v in rows)
+            + "</table>"})
     overview = {"type": "sections", "max_columns": 4, "title": "Zonnepanelen",
                 "path": "zonnepanelen", "icon": "mdi:solar-power",
                 "sections": [{"type": "grid", "column_span": 4,

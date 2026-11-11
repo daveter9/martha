@@ -372,20 +372,24 @@ START = "/lovelace/thuis"
 
 def titled(view, head, back):
     """The view as a sections view whose first row is a back button next to the title and
-    subtitle (C25). A masonry view's cards become one full-width section."""
-    top = {"type": "grid", "column_span": 4, "cards": [
-        {"type": "button", "icon": "mdi:arrow-left", "show_name": False, "show_state": False,
-         "tap_action": {"action": "navigate", "navigation_path": back},
-         "grid_options": {"columns": 2, "rows": 1}},
-        {**heading(*head), "grid_options": {"columns": 10}},
-    ]}
+    subtitle (C25). A masonry view's cards become one full-width section. The back button and
+    title go in the same section as the first full-width one, without the gap between
+    sections (user's request, 2026-11-11)."""
+    top = [{"type": "button", "icon": "mdi:arrow-left", "show_name": False, "show_state": False,
+            "tap_action": {"action": "navigate", "navigation_path": back},
+            "grid_options": {"columns": 2, "rows": 1}},
+           {**heading(*head), "grid_options": {"columns": 10}}]
     if view.get("type") == "sections":
-        sections = view["sections"]
+        sections = [dict(s) for s in view["sections"]]
     else:
         sections = [{"type": "grid", "column_span": 4,
                      "cards": [{**c, "grid_options": {"columns": "full"}} for c in view["cards"]]}]
+    if sections and sections[0].get("column_span") == 4:
+        sections[0]["cards"] = top + sections[0]["cards"]
+    else:
+        sections.insert(0, {"type": "grid", "column_span": 4, "cards": top})
     keep = {k: view[k] for k in ("title", "path", "icon") if k in view}
-    return {**keep, "type": "sections", "max_columns": 4, "sections": [top, *sections]}
+    return {**keep, "type": "sections", "max_columns": 4, "sections": sections}
 
 
 def value(entity):
@@ -403,6 +407,16 @@ def number(entity):
     return ("{%% set v = states('%(e)s') %%}"
             "{%% if v | is_number %%}{{ ('%%.2f' %% (v | float)) | replace('.', ',') }}"
             "{%% else %%}–{%% endif %%}") % {"e": entity}
+
+
+def number_sum(*entities):
+    """Jinja for the sum of the values without unit: two decimals with a decimal comma, or '–'
+    when one of them is not a number."""
+    states = ", ".join(f"states('{e}')" for e in entities)
+    return ("{%% set vs = [%(s)s] %%}"
+            "{%% if vs | select('is_number') | list | length == vs | length %%}"
+            "{{ ('%%.2f' %% (vs | map('float') | sum)) | replace('.', ',') }}"
+            "{%% else %%}–{%% endif %%}") % {"s": states}
 
 
 def ago(entity, attribute):
