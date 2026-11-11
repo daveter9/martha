@@ -229,10 +229,6 @@ def views(ids, rows, gas_meter=None):
     def e(uid):
         return ids.get(uid)
 
-    def stat(uid, title):
-        return {"type": "statistic", "entity": e(uid), "name": title, "stat_type": "change",
-                "period": "energy_date_selection"}
-
     def graph(title, uids, period, days, chart_type="bar"):
         return {"type": "statistics-graph", "title": title, "chart_type": chart_type,
                 "entities": [e(u) for u in uids if e(u)], "stat_types": ["change"],
@@ -242,61 +238,15 @@ def views(ids, rows, gas_meter=None):
         return {"type": "markdown", "title": title,
                 "content": f"{{{{ state_attr('{e(uid)}', '{attribute}') }}}}"}
 
-    def costs(part):
-        return [(e(f"heat_{part}_cv"), "CV-ketel"), (e(f"heat_{part}_wp"), "Warmtepomp"),
-                (e(f"heat_{part}_cv_mkt"), "CV-ketel (markt)"), (e(f"heat_{part}_wp_mkt"), "Warmtepomp (markt)")]
-
     def full(card):
         return {**card, "grid_options": {"columns": "full"}}
 
-    per_day = full(md("Per dag: verwarming en tapwater", "heat_split_days", "tabel"))
-    comparison = dashboards.page(
-        "Kosten", "kosten", "mdi:scale-balance",
-        usage=[(e("heat_total_gas_space"), "Gas verwarming")], costs=costs("space"),
-        details=[
-            {"type": "markdown", "content":
-                "Wat **verwarmen** werkelijk kost met de CV-ketel, en wat precies dezelfde warmte zou kosten "
-                "met een **volledig elektrische** warmtepomp. Per minuut berekend uit het gasverbruik van de "
-                "P1-meter en de buitentemperatuur, met je **contractprijzen** en met de **marktprijs** van een "
-                "dynamisch contract (day-ahead plus opslag, energiebelasting en btw).\n\n"
-                "Warm water staat apart op het dashboard *Tapwater*. De **vaste kosten** (gasaansluiting, "
-                "onderhoud) horen bij geen van beide; ze staan hieronder, met het totaal van alles samen. "
-                "Hoe: tab *Berekening*. Op welke aannames: tab *Aannames*."},
-            per_day,
-            {"type": "entities", "title": "Tot nu toe: verwarming", "entities": [
-                e("heat_total_gas_space"), e("heat_space_cv"), e("heat_space_wp"),
-                e("heat_space_cv_mkt"), e("heat_space_wp_mkt")]},
-            {"type": "entities", "title": "Tot nu toe: alles samen (verwarming + tapwater + vast)", "entities": [
-                e("heat_fixed_cv"), e("heat_fixed_wp"),
-                e("heat_total_cv"), e("heat_total_wp"), e("heat_total_cv_mkt"), e("heat_total_wp_mkt"),
-                e("heat_total_heat"), e("heat_total_wp_kwh"), e("heat_gas_market")]},
-        ])
     calculation = [
         md("Hoe één minuut wordt berekend", "heat_explain", "uitleg"),
         {"type": "history-graph", "title": "Buitentemperatuur (48 uur)", "hours_to_show": 48,
          "entities": [e("heat_outdoor_temperature")]},
         graph("Warmtevraag per uur (48 uur)", ["heat_total_heat"], "hour", 2),
         {"type": "markdown", "title": "De formules", "content": FORMULAS},
-    ]
-    forecast = [
-        md("Per jaar, met de temperaturen van een gemiddeld jaar", "heat_forecast", "tabel"),
-        md("Per jaar: verwarming en tapwater", "heat_forecast", "tabel_splitsing"),
-        {"type": "entities", "title": "Warmteverlies van het huis", "entities": [
-            e("heat_loss"),
-            {"type": "attribute", "entity": e("heat_loss"), "attribute": "vermogen_bij_min10_kw",
-             "name": "Benodigd vermogen bij -10 °C", "suffix": "kW"},
-            {"type": "attribute", "entity": e("heat_loss"), "attribute": "warm_water_m3_per_dag",
-             "name": "Gas voor warm water (gemeten)", "suffix": "m³/dag"},
-            {"type": "attribute", "entity": e("heat_loss"), "attribute": "toelichting",
-             "name": "Toelichting"},
-        ]},
-        {"type": "markdown", "content":
-            "Het **warmteverlies** (W/K) is de warmte die het huis per uur verliest per graad verschil "
-            "tussen binnen en buiten. Het volgt uit de metingen: de warmte voor verwarming per dag gedeeld "
-            "door de graaduren (stookgrens min buitentemperatuur, opgeteld per minuut). Hoe meer koude en "
-            "zachte dagen, hoe betrouwbaarder (R² naar 1). Zolang dat nog niet zo is, wordt het geijkt op "
-            "je gasverbruik van vorig jaar. De prognose rekent daarmee een heel jaar door met de "
-            "uurtemperaturen van 2019, het jaar dat het dichtst bij het gemiddelde van 2016-2025 ligt."},
     ]
     assumptions = [md("Aannames en wat je kunt verfijnen", "heat_assumptions", "tabel")]
 
@@ -314,10 +264,10 @@ def views(ids, rows, gas_meter=None):
     if e("heat_total_gas_dhw"):
         # HA's date picker starts on today and steps through the days, as the power on
         # Zonnepanelen.
-        cards += [{"type": "energy-date-selection"},
-                  {"type": "statistics-graph", "title": "Tapwater per uur", "chart_type": "bar",
-                   "entities": [{"entity": e("heat_total_gas_dhw"), "name": "Gas tapwater"}],
-                   "stat_types": ["change"], "period": "hour", "energy_date_selection": True}]
+        cards += dashboards.picked("dhw", {
+            "type": "statistics-graph", "title": "Tapwater per uur", "chart_type": "bar",
+            "entities": [{"entity": e("heat_total_gas_dhw"), "name": "Gas tapwater"}],
+            "stat_types": ["change"], "period": "hour"})
     dhw = {"type": "sections", "max_columns": 4, "title": "Tapwater", "path": "tapwater",
            "icon": "mdi:shower-head",
            "sections": [{"type": "grid", "column_span": 4, "cards": [full(c) for c in cards]}]
@@ -351,11 +301,10 @@ def views(ids, rows, gas_meter=None):
     if not ids:
         return {"heating": [], "dhw": []}
     heating = [("Berekening", "berekening", "mdi:calculator-variant-outline", calculation),
-               ("Prognose", "prognose", "mdi:calendar-cash", forecast),
                ("Aannames", "aannames", "mdi:clipboard-list-outline", assumptions),
                ("Instellingen", "instellingen", "mdi:cog", settings)]
-    return {"heating": ([comparison] if comparison else [])
-            + [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in heating],
+    # Kosten and Prognose are not shown (user's request, 2026-11-11); their sensors stay.
+    return {"heating": [{"title": t, "path": p, "icon": i, "cards": clean(c)} for t, p, i, c in heating],
             "dhw": [dhw] if dhw else []}
 
 

@@ -12,7 +12,6 @@ script. A domain without any views is not created; the dashboards of the earlier
 (per source: P1-meter, Zonnepanelen, Warmtepomp) are removed.
 """
 
-import copy
 import hashlib
 import os
 import sys
@@ -37,17 +36,28 @@ HEADINGS = {
     ("electricity", "zonnepanelen"): "Zonnepanelen",
     ("electricity", "instellingen"): "Instellingen stroom",
     ("heating", "gas"): HEADINGS_GAS,
-    ("heating", "kosten"): "Kosten verwarmen",
     ("heating", "berekening"): "Berekening",
-    ("heating", "prognose"): "Prognose per jaar",
     ("heating", "aannames"): "Aannames",
     ("heating", "instellingen"): "Instellingen verwarming",
-    ("dhw", "tapwater"): "Tapwater",
-    ("dhw", "gas"): HEADINGS_GAS,
 }
 # Built-in panels hidden from the sidebar (C24). They stay loaded: the dashboards need history
 # (history graphs) and energy (period selection); logbook and media come with them.
 HIDDEN_PANELS = ["home", "energy", "logbook", "history", "media-browser"]
+
+
+# HA's date pickers with their own period (collection) per graph; martha-defaults.js gives
+# each its default period: this week, or today for the power and hot water (user's request,
+# 2026-11-11).
+COLLECTIONS = {"solar": "energy_martha_solar", "power": "energy_martha_power",
+               "use": "energy_martha_use", "gas": "energy_martha_gas", "dhw": "energy_martha_dhw"}
+
+
+def picked(name, graph):
+    """A date picker and the statistics-graph 'graph' that follows it, in the collection
+    COLLECTIONS[name]."""
+    key = COLLECTIONS[name]
+    return [{"type": "energy-date-selection", "collection_key": key},
+            {**graph, "energy_date_selection": True, "collection_key": key}]
 
 
 def heading(title, subtitle=""):
@@ -130,11 +140,8 @@ def collect(ws, token):
     entry = setup_p1.dsmr_entry(token)
     if entry:
         p1_ids = setup_p1.by_key(ws, entry)
-        # The meter pages show the costs the other parts calculate, when they are installed.
-        p1 = setup_p1.views(p1_ids,
-                            electricity_costs=[(solar.get("solar_total_cmp_fixed"), "Stroomkosten (netto)")],
-                            gas_costs=[(heat.get("heat_total_cv"), "Gaskosten (met vaste kosten)")],
-                            use_total=solar.get("solar_total_use"))
+        # Gebruik woning shows the use of the house, grid plus solar, when the panels are there.
+        p1 = setup_p1.views(p1_ids, use_total=solar.get("solar_total_use"))
         out["electricity"] += p1["electricity"]
         out["heating"] += p1["gas"]
 
@@ -180,6 +187,7 @@ def collect(ws, token):
 def write(ws, token):
     views, home, (p1_ids, solar_ids, heat_ids) = collect(ws, token)
     write_energy(ws, p1_ids, solar_ids)
+    write_resource(ws, "martha-defaults.js")
     existing = {d["url_path"]: d for d in ws.call("lovelace/dashboards/list")}
     # Under the blocks of Elektriciteit: where the power comes from and goes to, now. Our own
     # card: HA's power-sankey always shows "untracked consumption" (C25).
@@ -206,13 +214,11 @@ def write(ws, token):
     if gas_page:
         if heat_ids.get("heat_gas_split") and write_resource(ws, "martha-gas-split.js"):
             split = {"type": "custom:martha-gas-split", "entity": heat_ids["heat_gas_split"], "hours": 1}
-        if views["dhw"]:
-            views["dhw"].append(copy.deepcopy(gas_page))
-        for key in ("heating", "dhw"):
-            page_ = next((v for v in views[key] if v["path"] == "gas"), None)
-            if split and page_:
-                page_["sections"][0]["cards"].insert(1, {
-                    **split, "navigation_path": f"/{DASHBOARDS[key][0]}/gas-verdeeld"})
+        # Second on the page, under the use with its date picker (user's request, 2026-11-11).
+        if split:
+            gas_page["sections"][0]["cards"].append({
+                **split, "navigation_path": f"/{DASHBOARDS['heating'][0]}/gas-verdeeld",
+                "grid_options": {"columns": "full"}})
     # Under the use on Elektriciteit: from the grid and from the panels (user's request,
     # 2026-11-11); without the panels the use is all from the grid.
     splits = {}
@@ -227,6 +233,14 @@ def write(ws, token):
         if not views[key]:
             continue
         pages = views[key]
+        # Tapwater (user's request, 2026-11-11): one page, the overview, with the graph of
+        # the page Tapwater under its table; no buttons, no page Gas.
+        if key == "dhw":
+            dhw_page = next((v for v in pages if v["path"] == "tapwater"), None)
+            if dhw_page:
+                extra["dhw"] = [c for s in dhw_page.get("sections", []) for c in s["cards"]
+                                if "<table" not in c.get("content", "")]
+            pages = []
         # Progressive disclosure: an overview, the pages as subviews that go back to it.
         first = overview(path, title, pages, home.get(key, []), extra.get(key, []),
                          TABLES.get(key), splits.get(key, ()))
@@ -347,7 +361,7 @@ def overview(path, title, subviews, values, extra=(), table=None, split=()):
                for v in subviews]
     top = now_table(values, *table, split=split) if table else now_today(values, horizontal=True)
     cards = [top, *extra,
-             {"type": "grid", "columns": 3, "square": False, "cards": buttons}]
+             {"type": "grid", "columns": 3, "square": False, "cards": buttons} if buttons else None]
     return {"title": title, "path": "overzicht", "icon": "mdi:view-dashboard",
             "cards": [c for c in cards if c]}
 

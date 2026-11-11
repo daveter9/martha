@@ -349,21 +349,20 @@ def views(ids):
         for label, col in (("naar net", "export"), ("naar huis", "self"))])
     split = [{"entity": x, "name": n} for x, n in ((e("solar_total_export"), "Naar het net"),
                                                    (e("solar_total_self_use"), "Naar het huis")) if x]
-    # HA's date picker above both graphs (user's request, 2026-11-11): it starts on today and
-    # toggles between day, week, month and year, with arrows to step through them. The
-    # generation follows it (per hour for a day, per day for a week or month, per month for a
-    # year); the power of the inverter too, from the 5-minute statistics, kept as long as the
-    # recorder keeps its states.
+    # Each graph with its own date picker (user's request, 2026-11-11), toggling day, week,
+    # month and year: the generation starts on this week (per hour for a day, per day for a
+    # week or month, per month for a year), the power of the inverter on today (5-minute
+    # statistics, kept as long as the recorder keeps its states).
     cards = [c for c in (table,) if c]
-    if split or e("solar_growatt_power"):
-        cards.append({"type": "energy-date-selection"})
     if split:
-        cards.append({"type": "statistics-graph", "title": "Opwek", "chart_type": "bar-stack",
-                      "entities": split, "stat_types": ["change"], "energy_date_selection": True})
+        cards += dashboards.picked("solar", {
+            "type": "statistics-graph", "title": "Opwek", "chart_type": "bar-stack",
+            "entities": split, "stat_types": ["change"]})
     if e("solar_growatt_power"):
-        cards.append({"type": "statistics-graph", "title": "Vermogen", "chart_type": "line",
-                      "entities": [{"entity": e("solar_growatt_power"), "name": "Opwek"}],
-                      "stat_types": ["mean"], "energy_date_selection": True})
+        cards += dashboards.picked("power", {
+            "type": "statistics-graph", "title": "Vermogen", "chart_type": "line",
+            "entities": [{"entity": e("solar_growatt_power"), "name": "Opwek"}],
+            "stat_types": ["mean"]})
     overview = {"type": "sections", "max_columns": 4, "title": "Zonnepanelen",
                 "path": "zonnepanelen", "icon": "mdi:solar-power",
                 "sections": [{"type": "grid", "column_span": 4,

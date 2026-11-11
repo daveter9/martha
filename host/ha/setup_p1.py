@@ -138,58 +138,34 @@ NAMES = {
 }
 
 
-def views(ids, electricity_costs=(), gas_costs=(), use_total=None):
-    """The P1 pages: Gebruik woning for the dashboard Elektriciteit, Gas (in the fixed layout
-    of dashboards.page) for Verwarming. The costs come from the other parts when installed.
-    Only cards for sensors this meter actually has. 'use_total' is the use of the house
-    wherever it comes from (solar_total_use), for the use per hour."""
+def views(ids, use_total=None):
+    """The P1 pages: Gebruik woning for the dashboard Elektriciteit, Gas for Verwarming. Only
+    cards for sensors this meter actually has. 'use_total' is the use of the house wherever it
+    comes from (solar_total_use)."""
     def named(*keys):
         return [(ids[k], NAMES.get(k)) for k in keys if k in ids]
 
-    power = named("current_electricity_usage", "current_electricity_delivery")
-    # Use as one bar per period: low and normal tariff stacked.
     used = [(ids[k], n) for k, n in (("electricity_used_tariff_1", "Dal"),
                                      ("electricity_used_tariff_2", "Normaal")) if k in ids]
-    costs = [(e, n) for e, n in electricity_costs if e]
     gas = named("gas_meter_reading")
 
     def ents(pairs):
         return [{"entity": e, "name": n} if n else e for e, n in pairs]
 
-    def history(title, entities, hours=24):
-        return {"type": "history-graph", "title": title, "hours_to_show": hours,
-                "entities": entities, "grid_options": {"columns": "full"}}
-
-    def statistics(title, entities, period, days, stat_types, chart_type="line"):
-        return {"type": "statistics-graph", "title": title, "entities": entities,
-                "period": period, "days_to_show": days, "stat_types": stat_types,
-                "chart_type": chart_type, "grid_options": {"columns": "full"}}
-
-    # Gebruik woning (user's request, 2026-10-30): only the power over 24 hours, and use and
-    # costs per hour, day, week, month and year. label, period, days shown.
-    sections = [{"type": "grid", "cards": [history("Vermogen (24 uur)", ents(power))]}] if power else []
-    for label, period, days in (("uur", "hour", 1), ("dag", "day", 30), ("week", "week", 26 * 7),
-                                ("maand", "month", 365), ("jaar", "year", 5 * 365)):
-        cards = [{"type": "heading", "heading": f"Per {label}"}]
-        # Per hour one bar, without low and normal tariff (user's request, 2026-11-11).
-        if period == "hour" and use_total:
-            cards.append(statistics(f"Gebruik per {label}", [{"entity": use_total, "name": "Gebruik"}],
-                                    period, days, ["change"], "bar"))
-        elif used:
-            cards.append(statistics(f"Gebruik per {label}", ents(used), period, days,
-                                    ["change"], "bar-stack"))
-        if costs:
-            cards.append(statistics(f"Kosten per {label}", ents(costs), period, days,
-                                    ["change"], "bar"))
-        sections.append({"type": "grid", "cards": cards})
+    # Gebruik woning and Gas (user's request, 2026-11-11): only the use, with a date picker
+    # that starts on this week (per hour for a day, per day for a week or month). The use of
+    # the house is grid plus solar self-use (solar_total_use); without the panels the tariffs.
+    use = ([{"entity": use_total, "name": "Gebruik"}] if use_total else ents(used))
     home = {"type": "sections", "max_columns": 4, "title": "Gebruik woning", "path": "gebruik-woning",
-            "icon": "mdi:home-lightning-bolt", "sections": sections}
-    gas_page = dashboards.page(
-        "Gas", "gas", "mdi:meter-gas", usage=gas, costs=gas_costs,
-        # The meter reports gas every 5 minutes; HA's 5-minute statistics give the use
-        # per interval (kept as long as the recorder's purge_keep_days).
-        today=[statistics("Gas per 5 minuten (24 uur)", ents(gas), "5minute", 1, ["change"])] if gas else [],
-        details=[{"type": "entities", "title": "Meterstand", "entities": ents(gas)}])
+            "icon": "mdi:home-lightning-bolt", "sections": [{"type": "grid", "column_span": 4, "cards": [
+                {**c, "grid_options": {"columns": "full"}} for c in dashboards.picked("use", {
+                    "type": "statistics-graph", "title": "Gebruik", "entities": use,
+                    "stat_types": ["change"], "chart_type": "bar" if use_total else "bar-stack"})]}]}
+    gas_page = {"type": "sections", "max_columns": 4, "title": "Gas", "path": "gas",
+                "icon": "mdi:meter-gas", "sections": [{"type": "grid", "column_span": 4, "cards": [
+                    {**c, "grid_options": {"columns": "full"}} for c in dashboards.picked("gas", {
+                        "type": "statistics-graph", "title": "Gasverbruik", "entities": ents(gas),
+                        "stat_types": ["change"], "chart_type": "bar"})]}]} if gas else None
     return {"electricity": [home] if used else [],
             "gas": [gas_page] if gas_page and gas else []}
 
