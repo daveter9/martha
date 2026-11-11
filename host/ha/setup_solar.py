@@ -359,6 +359,14 @@ def views(ids):
         cards.append({"type": "statistics-graph", "title": "Opwek per dag",
                       "chart_type": "bar-stack", "entities": split, "stat_types": ["change"],
                       "period": "day", "days_to_show": 30, "grid_options": {"columns": "full"}})
+    # Under it the power of the inverter on one day (user's request, 2026-11-11): HA's date
+    # picker starts on today and steps through the days; the graph uses the 5-minute
+    # statistics, kept as long as the recorder keeps its states.
+    if e("solar_growatt_power"):
+        cards += [{"type": "energy-date-selection"},
+                  {"type": "statistics-graph", "title": "Vermogen", "chart_type": "line",
+                   "entities": [{"entity": e("solar_growatt_power"), "name": "Opwek"}],
+                   "stat_types": ["mean"], "energy_date_selection": True}]
     overview = {"type": "sections", "max_columns": 4, "title": "Zonnepanelen",
                 "path": "zonnepanelen", "icon": "mdi:solar-power",
                 "sections": [{"type": "grid", "column_span": 4,

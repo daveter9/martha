@@ -254,10 +254,12 @@ Grott in proxy-modus anders niets verwerkt (C1a). Alle berekeningen zitten in Ti
 (`host/db/solar.sql`, tabel `solar_1m` per minuut) en worden in HA getoond via SQL-sensoren en
 HA-statistieken. Tarieven en investering zijn helpers in HA, en LTSS bewaart hun historie.
 Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.local` kent.
-- **De pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11) toont alleen twee dingen,
+- **De pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11) toont alleen drie dingen, onder
+  een titel zonder ondertitel,
   en wijkt dus af van de vaste indeling (C25):
   1. de tabel *Nu*, *Dag*, *Week*, *Maand* zoals op de overzichten (`now_table()`): `kWh` =
-     opwek (*Nu* in kW), `€` = de besparing van de teruglevering: kWh naar het net × de kWh-prijs (inkoop) van die
+     opwek = *naar net* + *naar huis*, zodat de verdeling optelt tot 100% (vóór de koppeling van de
+     omvormer was alleen de teruglevering bekend) (*Nu* in kW), `€` = de besparing van de teruglevering: kWh naar het net × de kWh-prijs (inkoop) van die
      minuut (verzoek van de gebruiker, 2026-11-11; `saving_export` in `solar_1d`; *Nu* in €/u
      met de prijs van nu). Uit `solar_home()`: *Nu* uit het laatste vermogen van de omvormer en de
      teruglevering van de P1-meter (rol `export_power`), de periodes uit `solar_1d`. Linksboven
@@ -269,6 +271,9 @@ Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.l
      schrijft daarom bij elke run elk afgelopen uur van deze tellers opnieuw, met de som uit
      `solar_1m` (`recorder/import_statistics`). Bij uren die HA al had, blijft HA's eigen
      `state` staan, zodat HA daarna verder telt.
+  3. het vermogen van de omvormer over één dag: HA's datumkiezer (`energy-date-selection`,
+     staat standaard op vandaag) met een statistics-graph met `energy_date_selection`, uit de
+     5-minutenstatistieken (zo lang bewaard als de recorder zijn states bewaart).
 
 ### Thermostaat (Honeywell Lyric T6, HomeKit)
 De kamerthermostaat is een Honeywell Lyric T6 met Apple HomeKit. Home Assistant praat er

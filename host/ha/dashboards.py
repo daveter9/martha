@@ -33,7 +33,7 @@ HEADINGS_GAS = ("Gasmeter", "Gasverbruik per 5 minuten, per dag en per maand")
 # Every page starts with a title that says what is on it (C25), by dashboard and view path.
 HEADINGS = {
     ("electricity", "gebruik-woning"): ("Gebruik woning", "Vermogen, en gebruik en kosten per uur, dag, week, maand en jaar"),
-    ("electricity", "zonnepanelen"): ("Zonnepanelen", "Opwek en opbrengst, en per dag wat naar het net en naar het huis ging"),
+    ("electricity", "zonnepanelen"): ("Zonnepanelen", ""),
     ("electricity", "omvormer"): ("Omvormer", "Opwek, strings en het net volgens de Growatt"),
     ("electricity", "contract"): ("Stroomcontract", "Je vaste contract tegen een dynamisch contract"),
     ("electricity", "investering"): ("Investering zonnepanelen", "Terugverdienen: tot nu toe en de prognose"),
