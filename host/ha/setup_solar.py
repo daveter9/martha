@@ -59,6 +59,7 @@ ROLES = {
     "electricity_delivered_tariff_1": "export_low",
     "electricity_delivered_tariff_2": "export_normal",
     "electricity_active_tariff": "tariff",
+    "current_electricity_delivery": "export_power",   # kW, for solar_home()
 }
 
 # Helpers: key -> (label, unit, min, max, step, initial). The entity is
@@ -272,24 +273,10 @@ def sql_entities(ws):
             and str(e.get("unique_id", "")).startswith("solar_")}
 
 
-def views(ids, p1=None):
-    """The solar views on the dashboard Elektriciteit (host/ha/dashboards.py). 'p1' are the
-    entity ids of the P1 meter by DSMR key: its feed-in is shown live on Zonnepanelen, also
-    while the inverter is not connected."""
-    p1 = p1 or {}
-
+def views(ids):
+    """The solar views on the dashboard Elektriciteit (host/ha/dashboards.py)."""
     def e(uid):
         return ids.get(uid)
-
-    def meter(key, name):
-        return {"entity": p1[key], "name": name} if key in p1 else None
-
-    def stat(uid, title=None):
-        card = {"type": "statistic", "entity": e(uid), "stat_type": "change",
-                "period": "energy_date_selection"}
-        if title:
-            card["name"] = title
-        return card
 
     def graph(title, uids, period, days):
         return {"type": "statistics-graph", "title": title, "chart_type": "bar",
@@ -300,38 +287,28 @@ def views(ids, p1=None):
         return {"type": "entities", "title": title,
                 "entities": [f"input_number.solar_{k}" for k in keys]}
 
-    # Live, from the P1 meter: the power to and from the grid now and over 24 hours. Without the
-    # inverter the feed-in is all that is known of the panels.
-    now = [meter("current_electricity_delivery", "Teruglevering nu"),
-           meter("current_electricity_usage", "Verbruik nu")]
-    now = [x for x in now if x]
-    live = [{"type": "tile", "entity": x["entity"], "name": x["name"]} for x in now]
-    if e("solar_growatt_power"):
-        live.insert(0, {"type": "tile", "entity": e("solar_growatt_power"), "name": "Opwek nu"})
-    if now:
-        power = ([{"entity": e("solar_growatt_power"), "name": "Opwek"}] if e("solar_growatt_power") else []) + now
-        live.append({"type": "history-graph", "title": "Vermogen (24 uur)", "hours_to_show": 24,
-                     "entities": power, "grid_options": {"columns": "full"}})
-    delivered = [(p1.get("electricity_delivered_tariff_2"), "Teruglevering normaal"),
-                 (p1.get("electricity_delivered_tariff_1"), "Teruglevering dal")]
-
-    overview = dashboards.page(
-        "Zonnepanelen", "zonnepanelen", "mdi:solar-power",
-        today=live,
-        usage=[(e("solar_growatt_energy_total"), "Opwek"), *delivered,
-               (e("solar_total_self_use"), "Eigen gebruik"),
-               (e("solar_total_export_negative"), "Teruglevering bij negatieve prijs")],
-        costs=[(e("solar_total_benefit"), "Netto opbrengst"),
-               (e("solar_total_saving_self"), "Besparing eigen gebruik"),
-               (e("solar_total_revenue_export"), "Opbrengst teruglevering"),
-               (e("solar_total_cost_export"), "Terugleverkosten")],
-        details=[
-            {"type": "entities", "title": "Afgelopen 365 dagen",
-             "entities": [e("solar_self_use_pct"), e("solar_self_sufficiency_pct")]},
-            dict(graph("Opbrengst per jaar", ["solar_total_benefit", "solar_total_saving_self",
-                                              "solar_total_revenue_export", "solar_total_cost_export"],
-                       "year", 3650), grid_options={"columns": "full"}),
-        ])
+    # Zonnepanelen (user's request, 2026-11-11): only the table Nu, Dag, Week and Maand as on
+    # the overviews (generation and net benefit, solar_home) and per day what went to the grid
+    # and what to the house, stacked.
+    table = dashboards.now_table([
+        (e("solar_home_pv_now"), "Nu"), (e("solar_growatt_power"), "_age:last_reported"),
+        (e("solar_home_benefit_now"), "Kosten nu"),
+        (e("solar_home_pv_today"), "Vandaag"), (e("solar_home_benefit_today"), "Kosten vandaag"),
+        (e("solar_home_pv_week"), "Deze week"), (e("solar_home_benefit_week"), "Kosten deze week"),
+        (e("solar_home_pv_month"), "Deze maand"), (e("solar_home_benefit_month"), "Kosten deze maand"),
+    ], "kWh", "€")
+    split = [{"entity": x, "name": n} for x, n in ((e("solar_total_export"), "Naar het net"),
+                                                   (e("solar_total_self_use"), "Naar het huis")) if x]
+    cards = [c for c in (table,) if c]
+    if split:
+        cards.append({"type": "statistics-graph", "title": "Per dag naar het net en naar het huis",
+                      "chart_type": "bar-stack", "entities": split, "stat_types": ["change"],
+                      "period": "day", "days_to_show": 30, "grid_options": {"columns": "full"}})
+    overview = {"type": "sections", "max_columns": 4, "title": "Zonnepanelen",
+                "path": "zonnepanelen", "icon": "mdi:solar-power",
+                "sections": [{"type": "grid", "column_span": 4,
+                              "cards": [{**c, "grid_options": {"columns": "full"}} for c in cards]}]
+                } if cards else None
     contract = dashboards.page(
         "Contract", "contract", "mdi:file-compare",
         costs=[(e("solar_total_cmp_fixed"), "Huidig contract"),

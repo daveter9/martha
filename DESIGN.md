@@ -254,11 +254,17 @@ Grott in proxy-modus anders niets verwerkt (C1a). Alle berekeningen zitten in Ti
 (`host/db/solar.sql`, tabel `solar_1m` per minuut) en worden in HA getoond via SQL-sensoren en
 HA-statistieken. Tarieven en investering zijn helpers in HA, en LTSS bewaart hun historie.
 Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.local` kent.
-- **Live op de pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11): onder *Deze dag*
-  eerst *Teruglevering nu* en *Verbruik nu* van de P1-meter (en *Opwek nu* zodra de omvormer
-  gekoppeld is) en het vermogen over 24 uur; de tellers *Teruglevering normaal* en *dal* staan
-  bij de totalen en grafieken per dag, week, maand en jaar. Zo is de pagina ook zonder omvormer
-  bruikbaar. `setup_solar.views()` krijgt daarvoor de P1-entities mee.
+- **De pagina Zonnepanelen** (verzoek van de gebruiker, 2026-11-11) toont alleen twee dingen,
+  en wijkt dus af van de vaste indeling (C25):
+  1. de tabel *Nu*, *Dag*, *Week*, *Maand* zoals op de overzichten (`now_table()`): `kWh` =
+     opwek (*Nu* in kW), `€` = netto opbrengst (besparing eigen gebruik + terugleververgoeding
+     − terugleverkosten per kWh, zonder de vaste terugleverkosten per maand; *Nu* in €/u met de
+     prijzen van nu). Uit `solar_home()`: *Nu* uit het laatste vermogen van de omvormer en de
+     teruglevering van de P1-meter (rol `export_power`), de periodes uit `solar_1d`. Linksboven
+     hoe lang de laatste meting van de omvormer geleden is;
+  2. per dag (30 dagen) een gestapelde balk met wat naar het net ging (`solar_total_export`) en
+     wat naar het huis (`solar_total_self_use`), uit HA's statistieken. De teruglevering heeft
+     pas statistieken vanaf 2026-11-11, toen de sensor erbij kwam.
 
 ### Thermostaat (Honeywell Lyric T6, HomeKit)
 De kamerthermostaat is een Honeywell Lyric T6 met Apple HomeKit. Home Assistant praat er

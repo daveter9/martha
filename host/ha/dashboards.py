@@ -33,7 +33,7 @@ HEADINGS_GAS = ("Gasmeter", "Gasverbruik per 5 minuten, per dag en per maand")
 # Every page starts with a title that says what is on it (C25), by dashboard and view path.
 HEADINGS = {
     ("electricity", "gebruik-woning"): ("Gebruik woning", "Vermogen, en gebruik en kosten per uur, dag, week, maand en jaar"),
-    ("electricity", "zonnepanelen"): ("Zonnepanelen", "Wat de panelen opleveren: besparing, teruglevering en kosten"),
+    ("electricity", "zonnepanelen"): ("Zonnepanelen", "Opwek en opbrengst, en per dag wat naar het net en naar het huis ging"),
     ("electricity", "omvormer"): ("Omvormer", "Opwek, strings en het net volgens de Growatt"),
     ("electricity", "contract"): ("Stroomcontract", "Je vaste contract tegen een dynamisch contract"),
     ("electricity", "investering"): ("Investering zonnepanelen", "Terugverdienen: tot nu toe en de prognose"),
@@ -140,7 +140,7 @@ def collect(ws, token):
         out["electricity"] += p1["electricity"]
         out["heating"] += p1["gas"]
 
-    out["electricity"] += setup_solar.views(solar, p1_ids)
+    out["electricity"] += setup_solar.views(solar)
     if rows:
         h = setup_heat.views(heat, rows)
         out["heating"] += h["heating"]
