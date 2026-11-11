@@ -410,7 +410,8 @@ def now_table(values, use_unit, cost_unit, split=()):
         €             0,05   0,74   8,33   33,81
 
     'split' are extra rows between the two, as (label, values) with the names of 'values'
-    (Zonnepanelen: the generation to the grid and to the house).
+    (Zonnepanelen: the generation to the grid and to the house); under each value its share
+    of the use row, as '(42%)' on a new line (user's request, 2026-11-11).
     """
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
@@ -419,14 +420,32 @@ def now_table(values, use_unit, cost_unit, split=()):
         return None
 
     # HTML instead of a markdown table, so it can be centred (align passes HA's sanitizer).
-    def row(unit, i, by=by):
-        cells = [number(by[c[i]]) if c[i] in by else "–" for c in cols]
-        return f"<tr><td>{unit}</td>" + "".join(f'<td align="right">{x}</td>' for x in cells) + "</tr>"
+    def row(unit, i, part=None):
+        cells = []
+        for c in cols:
+            if part is None:
+                cells.append(number(by[c[i]]) if c[i] in by else "–")
+            elif c[i] in part:
+                share = share_of(part[c[i]], by[c[i]]) if c[i] in by else ""
+                cells.append(number(part[c[i]]) + share)
+            else:
+                cells.append("–")
+        return (f'<tr><td valign="top">{unit}</td>'
+                + "".join(f'<td align="right">{x}</td>' for x in cells) + "</tr>")
     extra = "".join(row(label, 1, {n: e for e, n in vals if e}) for label, vals in split)
     corner = f"<small>{ago(*age)}</small>" if age else ""
     head = f"<tr><th>{corner}</th>" + "".join(f'<th align="right">{c[0]}</th>' for c in cols) + "</tr>"
     return {"type": "markdown",
             "content": f'<table align="center">{head}{row(use_unit, 1)}{extra}{row(cost_unit, 2)}</table>'}
+
+
+def share_of(part, whole):
+    """Jinja: '<br><small>(42%)</small>', the share of 'part' in 'whole', or nothing when
+    the whole is not a number above 0."""
+    return ("{%% set p = states('%(p)s') %%}{%% set w = states('%(w)s') %%}"
+            "{%% if p | is_number and w | is_number and w | float > 0 %%}"
+            "<br><small>({{ (100 * p | float / w | float) | round(0) | int }}%%)</small>"
+            "{%% endif %%}") % {"p": part, "w": whole}
 
 
 def now_today(values, horizontal=False, labels=None):
