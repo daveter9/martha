@@ -147,7 +147,8 @@ def collect(ws, token):
         out["dhw"] += h["dhw"]
     # Start screen and overviews: use and costs now and today (heat_home in heat.sql).
     gas_meter = p1_ids.get("gas_meter_reading")
-    home = {"electricity": [(p1_ids.get("current_electricity_usage"), "Nu"),
+    # Electricity use: import plus solar self-use, wherever it comes from (heat_home).
+    home = {"electricity": [(heat.get("heat_home_elec_now") or p1_ids.get("current_electricity_usage"), "Nu"),
                             (p1_ids.get("current_electricity_usage"), "_age:last_reported"),
                             (heat.get("heat_home_elec_today"), "Vandaag"),
                             (heat.get("heat_home_elec_cost_now"), "Kosten nu"),

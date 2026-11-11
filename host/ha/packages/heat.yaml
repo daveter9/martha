@@ -224,6 +224,15 @@ sql:
     query: SELECT (SELECT count(*) FROM (SELECT 1 FROM heat_1d ORDER BY day DESC LIMIT 14) d) AS v, heat_split_days(14) AS tabel;
 
   # --- Start screen: use now and today (heat_home) ----------------------------------------
+  - name: Stroomverbruik nu
+    unique_id: heat_home_elec_now
+    icon: mdi:flash
+    unit_of_measurement: kW
+    device_class: power
+    column: v
+    # Import plus the solar power used in the house (heat_home).
+    query: SELECT round(elec_now::numeric, 2) AS v FROM heat_home() LIMIT 1;
+
   - name: Stroomverbruik vandaag
     unique_id: heat_home_elec_today
     icon: mdi:flash

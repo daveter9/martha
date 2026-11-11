@@ -835,7 +835,10 @@ $$;
 -- The start screen and the overviews (C25): use and costs now and today per dashboard,
 -- at contract prices without fixed costs. Electricity today, this week (from Monday) and
 -- this month = the import counters now minus at the local start of that period (raw LTSS,
--- so up to date), priced at the tariffs of now. Gas now = the average of the
+-- so up to date), priced at the tariffs of now. The use also counts the solar power used in
+-- the house, wherever it comes from (user's request, 2026-11-11): now = import power +
+-- inverter power - feed-in power; the periods add self_use from solar_1d (lags up to ~5
+-- minutes). The costs stay those of the import. Gas now = the average of the
 -- last 15 minutes in m³/h: the meter reports every 5 minutes and heat_job runs every 5
 -- minutes, so a shorter window would mostly show 0. Gas today, this week and this month
 -- from heat_1d (the sum of its days in the period).
@@ -852,7 +855,8 @@ RETURNS TABLE (elec_today double precision, gas_space_now double precision,
                gas_space_week double precision, gas_space_month double precision,
                gas_dhw_week double precision, gas_dhw_month double precision,
                space_cost_week double precision, space_cost_month double precision,
-               dhw_cost_week double precision, dhw_cost_month double precision)
+               dhw_cost_week double precision, dhw_cost_month double precision,
+               elec_now double precision)
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
     v_day    date := (now() AT TIME ZONE 'Europe/Amsterdam')::date;
@@ -869,8 +873,11 @@ DECLARE
     e_low    text := solar_entity_id('import_low');
     e_normal text := solar_entity_id('import_normal');
     e_power  text := heat_entity_id('elec_power');
+    e_pv     text := solar_entity_id('pv_power');
+    e_export text := solar_entity_id('export_power');
     v_tariff text;
     v_power  double precision;
+    v_self   double precision;
     c_low    double precision;
     c_normal double precision;
     d_low    double precision;
@@ -901,6 +908,19 @@ BEGIN
     d_normal := c_normal - heat_counter_at(e_normal, v_month);
     elec_month      := coalesce(d_low, 0) + coalesce(d_normal, 0);
     elec_cost_month := coalesce(d_low, 0) * p_low + coalesce(d_normal, 0) * p_normal;
+    -- Solar power used in the house: now (the inverter is unavailable at night: 0) and per period.
+    v_self := greatest(
+        coalesce((SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_pv
+                  ORDER BY time DESC LIMIT 1), 0) / 1000
+        - coalesce((SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_export
+                    ORDER BY time DESC LIMIT 1), 0), 0);
+    elec_now := coalesce(v_power, 0) + v_self;
+    elec_today := elec_today + coalesce(
+        (SELECT sum(self_use) FROM solar_1d WHERE solar_1d.day = v_day), 0);
+    elec_week := elec_week + coalesce(
+        (SELECT sum(self_use) FROM solar_1d WHERE solar_1d.day >= v_week::date AND solar_1d.day <= v_day), 0);
+    elec_month := elec_month + coalesce(
+        (SELECT sum(self_use) FROM solar_1d WHERE solar_1d.day >= v_month::date AND solar_1d.day <= v_day), 0);
     SELECT * INTO h FROM heat_1d WHERE heat_1d.day = v_day;
 
     elec_cost_now   := v_power * CASE WHEN v_tariff = 'low' THEN p_low ELSE p_normal END;
