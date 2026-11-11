@@ -29,23 +29,24 @@ DASHBOARDS = {
 }
 OLD = ("p1-meter", "zonne-energie", "warmte-pomp")
 
-HEADINGS_GAS = ("Gasmeter", "Gasverbruik per 5 minuten, per dag en per maand")
-# Every page starts with a title that says what is on it (C25), by dashboard and view path.
+HEADINGS_GAS = "Gasmeter"
+# Every page starts with a title that says what is on it (C25), by dashboard and view path;
+# no subtitle under it (user's request, 2026-11-11).
 HEADINGS = {
-    ("electricity", "gebruik-woning"): ("Gebruik woning", ""),
-    ("electricity", "zonnepanelen"): ("Zonnepanelen", ""),
-    ("electricity", "omvormer"): ("Omvormer", "Opwek, strings en het net volgens de Growatt"),
-    ("electricity", "contract"): ("Stroomcontract", "Je vaste contract tegen een dynamisch contract"),
-    ("electricity", "investering"): ("Investering zonnepanelen", "Terugverdienen: tot nu toe en de prognose"),
-    ("electricity", "overschot"): ("Zonne-overschot", "Wat een batterij zou opleveren, en het overschot per uur"),
-    ("electricity", "instellingen"): ("Instellingen stroom", "Stroomtarieven en de aannames van de zonnepanelen"),
+    ("electricity", "gebruik-woning"): "Gebruik woning",
+    ("electricity", "zonnepanelen"): "Zonnepanelen",
+    ("electricity", "omvormer"): "Omvormer",
+    ("electricity", "contract"): "Stroomcontract",
+    ("electricity", "investering"): "Investering zonnepanelen",
+    ("electricity", "overschot"): "Zonne-overschot",
+    ("electricity", "instellingen"): "Instellingen stroom",
     ("heating", "gas"): HEADINGS_GAS,
-    ("heating", "kosten"): ("Kosten verwarmen", "CV-ketel tegen warmtepomp, met contract- en marktprijs"),
-    ("heating", "berekening"): ("Berekening", "Zo wordt één minuut uitgerekend, met de formules"),
-    ("heating", "prognose"): ("Prognose per jaar", "Kosten met een gemiddeld jaar, en het warmteverlies van het huis"),
-    ("heating", "aannames"): ("Aannames", "Waar de berekening op rust en wat je kunt verfijnen"),
-    ("heating", "instellingen"): ("Instellingen verwarming", "Prijzen, huis en ketel, en de warmtepomp"),
-    ("dhw", "tapwater"): ("Tapwater", ""),
+    ("heating", "kosten"): "Kosten verwarmen",
+    ("heating", "berekening"): "Berekening",
+    ("heating", "prognose"): "Prognose per jaar",
+    ("heating", "aannames"): "Aannames",
+    ("heating", "instellingen"): "Instellingen verwarming",
+    ("dhw", "tapwater"): "Tapwater",
     ("dhw", "gas"): HEADINGS_GAS,
 }
 # Built-in panels hidden from the sidebar (C24). They stay loaded: the dashboards need history
@@ -136,7 +137,8 @@ def collect(ws, token):
         # The meter pages show the costs the other parts calculate, when they are installed.
         p1 = setup_p1.views(p1_ids,
                             electricity_costs=[(solar.get("solar_total_cmp_fixed"), "Stroomkosten (netto)")],
-                            gas_costs=[(heat.get("heat_total_cv"), "Gaskosten (met vaste kosten)")])
+                            gas_costs=[(heat.get("heat_total_cv"), "Gaskosten (met vaste kosten)")],
+                            use_total=solar.get("solar_total_use"))
         out["electricity"] += p1["electricity"]
         out["heating"] += p1["gas"]
 
@@ -233,7 +235,7 @@ def write(ws, token):
         first = overview(path, title, pages, home.get(key, []), extra.get(key, []),
                          TABLES.get(key), splits.get(key, ()))
         views[key] = [titled(first, (title, ""), START)] + [
-            {**titled(v, HEADINGS.get((key, v["path"]), (v["title"], "")), f"/{path}/overzicht"),
+            {**titled(v, (HEADINGS.get((key, v["path"]), v["title"]), ""), f"/{path}/overzicht"),
              "subview": True, "back_path": f"/{path}/overzicht"} for v in pages]
         if split and any(v["path"] == "gas" for v in pages):
             views[key].append(gas_split_page(split, path))
@@ -273,8 +275,7 @@ def gas_split_page(card, path):
             "sections": [{"type": "grid", "column_span": 4,
                           "cards": [{**card, "height": 480, "grid_options": {"columns": "full"}}]}]}
     back = f"/{path}/gas"
-    return {**titled(view, ("Gas verdeeld", "Per melding van de gasmeter: verwarming en tapwater. "
-                            "Zoom met scrollen of twee vingers, sleep om door de tijd te gaan."), back),
+    return {**titled(view, ("Gas verdeeld", ""), back),
             "subview": True, "back_path": back}
 
 
