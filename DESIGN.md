@@ -261,7 +261,7 @@ Martha heeft een vast IP-adres nodig (DHCP-reservering), omdat de stick geen `.l
      − terugleverkosten per kWh, zonder de vaste terugleverkosten per maand; *Nu* in €/u met de
      prijzen van nu). Uit `solar_home()`: *Nu* uit het laatste vermogen van de omvormer en de
      teruglevering van de P1-meter (rol `export_power`), de periodes uit `solar_1d`. Linksboven
-     hoe lang de laatste meting van de omvormer geleden is;
+     hoe lang de laatste meting van de omvormer geleden is. Onder *Opwek kWh* staat de verdeling: *naar net* (teruglevering) en *naar huis* (eigen gebruik), met *Nu* in kW (verzoek van de gebruiker, 2026-11-11; extra rijen via `split` van `now_table()`);
   2. per dag (30 dagen) een gestapelde balk met wat naar het net ging (`solar_total_export`) en
      wat naar het huis (`solar_total_self_use`), uit HA's statistieken. HA houdt statistieken
      pas bij vanaf het moment dat een sensor bestaat; daardoor ontbrak de teruglevering van

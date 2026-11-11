@@ -508,11 +508,17 @@ $$;
 -- of the days in solar_1d (lags up to ~5 minutes), benefit = saving on self-use + feed-in
 -- compensation - feed-in cost per kWh; the fixed feed-in cost per month is left out, as the
 -- fixed costs are on Elektriciteit (heat_home).
+-- With the split of the generation: to the grid (export) and to the house (self_use).
+DROP FUNCTION IF EXISTS solar_home();
 CREATE OR REPLACE FUNCTION solar_home()
 RETURNS TABLE (pv_now double precision, benefit_now double precision,
                pv_today double precision, benefit_today double precision,
                pv_week double precision, benefit_week double precision,
-               pv_month double precision, benefit_month double precision)
+               pv_month double precision, benefit_month double precision,
+               export_now double precision, self_now double precision,
+               export_today double precision, self_today double precision,
+               export_week double precision, self_week double precision,
+               export_month double precision, self_month double precision)
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
     v_day    date := (now() AT TIME ZONE 'Europe/Amsterdam')::date;
@@ -535,6 +541,8 @@ BEGIN
                  ORDER BY time DESC LIMIT 1);
     IF e_pv IS NOT NULL THEN
         pv_now := v_pv;
+        export_now := v_export;
+        self_now := greatest(v_pv - v_export, 0);
         benefit_now := greatest(v_pv - v_export, 0)
                            * coalesce(solar_setting_now(CASE WHEN v_tariff = 'low' THEN 'import_low'
                                                              ELSE 'import_normal' END), 0)
@@ -543,14 +551,19 @@ BEGIN
     END IF;
     WITH d AS (
         SELECT day, pv, coalesce(saving_self, 0) + coalesce(revenue_export, 0)
-                        - coalesce(cost_export, 0) AS benefit
+                        - coalesce(cost_export, 0) AS benefit,
+               export_low + export_normal AS export, self_use
         FROM solar_1d
         WHERE day >= least(v_week, v_month) AND day <= v_day
           AND day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date)
     SELECT sum(pv) FILTER (WHERE day = v_day), coalesce(sum(benefit) FILTER (WHERE day = v_day), 0),
            sum(pv) FILTER (WHERE day >= v_week), coalesce(sum(benefit) FILTER (WHERE day >= v_week), 0),
            sum(pv) FILTER (WHERE day >= v_month), coalesce(sum(benefit) FILTER (WHERE day >= v_month), 0)
-    INTO pv_today, benefit_today, pv_week, benefit_week, pv_month, benefit_month
+           , coalesce(sum(export) FILTER (WHERE day = v_day), 0), sum(self_use) FILTER (WHERE day = v_day),
+           coalesce(sum(export) FILTER (WHERE day >= v_week), 0), sum(self_use) FILTER (WHERE day >= v_week),
+           coalesce(sum(export) FILTER (WHERE day >= v_month), 0), sum(self_use) FILTER (WHERE day >= v_month)
+    INTO pv_today, benefit_today, pv_week, benefit_week, pv_month, benefit_month,
+         export_today, self_today, export_week, self_week, export_month, self_month
     FROM d;
     RETURN NEXT;
 END $$;

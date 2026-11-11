@@ -347,7 +347,11 @@ def views(ids):
         (e("solar_home_pv_today"), "Vandaag"), (e("solar_home_benefit_today"), "Kosten vandaag"),
         (e("solar_home_pv_week"), "Deze week"), (e("solar_home_benefit_week"), "Kosten deze week"),
         (e("solar_home_pv_month"), "Deze maand"), (e("solar_home_benefit_month"), "Kosten deze maand"),
-    ], "kWh", "€")
+    ], "Opwek kWh", "€", split=[
+        (f"&nbsp;&nbsp;{label}", [(e(f"solar_home_{col}_now"), "Nu"), (e(f"solar_home_{col}_today"), "Vandaag"),
+                                  (e(f"solar_home_{col}_week"), "Deze week"),
+                                  (e(f"solar_home_{col}_month"), "Deze maand")])
+        for label, col in (("naar net", "export"), ("naar huis", "self"))])
     split = [{"entity": x, "name": n} for x, n in ((e("solar_total_export"), "Naar het net"),
                                                    (e("solar_total_self_use"), "Naar het huis")) if x]
     cards = [c for c in (table,) if c]

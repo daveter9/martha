@@ -390,7 +390,7 @@ BLOCKS = [("Nu", "Nu", "Kosten nu"), ("Dag", "Vandaag", "Kosten vandaag"),
 TABLES = {"electricity": ("kWh", "€"), "heating": ("m³", "€"), "dhw": ("m³", "€")}
 
 
-def now_table(values, use_unit, cost_unit):
+def now_table(values, use_unit, cost_unit, split=()):
     """The use and costs per period as one table, the units named once per row and how long
     ago the measurement behind 'Nu' is in the top-left cell (asked by the user for
     Elektriciteit):
@@ -398,6 +398,9 @@ def now_table(values, use_unit, cost_unit):
         12 s geleden    Nu    Dag   Week   Maand
         kWh           0,17   2,68  30,87  125,23
         €             0,05   0,74   8,33   33,81
+
+    'split' are extra rows between the two, as (label, values) with the names of 'values'
+    (Zonnepanelen: the generation to the grid and to the house).
     """
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
@@ -406,13 +409,14 @@ def now_table(values, use_unit, cost_unit):
         return None
 
     # HTML instead of a markdown table, so it can be centred (align passes HA's sanitizer).
-    def row(unit, i):
+    def row(unit, i, by=by):
         cells = [number(by[c[i]]) if c[i] in by else "–" for c in cols]
         return f"<tr><td>{unit}</td>" + "".join(f'<td align="right">{x}</td>' for x in cells) + "</tr>"
+    extra = "".join(row(label, 1, {n: e for e, n in vals if e}) for label, vals in split)
     corner = f"<small>{ago(*age)}</small>" if age else ""
     head = f"<tr><th>{corner}</th>" + "".join(f'<th align="right">{c[0]}</th>' for c in cols) + "</tr>"
     return {"type": "markdown",
-            "content": f'<table align="center">{head}{row(use_unit, 1)}{row(cost_unit, 2)}</table>'}
+            "content": f'<table align="center">{head}{row(use_unit, 1)}{extra}{row(cost_unit, 2)}</table>'}
 
 
 def now_today(values, horizontal=False, labels=None):

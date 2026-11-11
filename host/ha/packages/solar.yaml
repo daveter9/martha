@@ -134,6 +134,70 @@ sql:
     column: v
     query: SELECT round(benefit_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
+  - name: Zonnepanelen naar het net nu
+    unique_id: solar_home_export_now
+    icon: mdi:transmission-tower-import
+    unit_of_measurement: kW
+    device_class: power
+    column: v
+    query: SELECT round(export_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen naar het huis nu
+    unique_id: solar_home_self_now
+    icon: mdi:home-lightning-bolt
+    unit_of_measurement: kW
+    device_class: power
+    column: v
+    query: SELECT round(self_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen naar het net vandaag
+    unique_id: solar_home_export_today
+    icon: mdi:transmission-tower-import
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(export_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen naar het huis vandaag
+    unique_id: solar_home_self_today
+    icon: mdi:home-lightning-bolt
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(self_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen naar het net deze week
+    unique_id: solar_home_export_week
+    icon: mdi:transmission-tower-import
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(export_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen naar het huis deze week
+    unique_id: solar_home_self_week
+    icon: mdi:home-lightning-bolt
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(self_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen naar het net deze maand
+    unique_id: solar_home_export_month
+    icon: mdi:transmission-tower-import
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(export_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen naar het huis deze maand
+    unique_id: solar_home_self_month
+    icon: mdi:home-lightning-bolt
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(self_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
   # --- Contract comparison (V1), over the minutes with a day-ahead price -------------------
   - name: Zonnepanelen kosten huidig contract
     unique_id: solar_total_cmp_fixed
