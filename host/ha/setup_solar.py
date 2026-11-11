@@ -3,7 +3,7 @@
 
 Run as root on martha, after install.sh (which applies host/db/solar.sql) and setup_p1.py:
 
-    sudo python3 /usr/local/lib/martha/setup_solar.py [--start 2026-10-23] [--inverter]
+    sudo python3 /usr/local/lib/martha/setup_solar.py [--start 2026-10-23] [--inverter [--host IP]]
 
 Idempotent; each run:
   1. makes a backup (martha-ha backup before-solar);
@@ -19,20 +19,19 @@ Idempotent; each run:
   7. writes the dashboards per domain (host/ha/dashboards.py): the solar tabs are on
      Elektriciteit.
 
-With --inverter (phase 5, the Growatt through Grott), also:
-  - a webhook id martha_grott_webhook in secrets.yaml (once);
-  - packages/solar_growatt.yaml (the sensors the webhook fills);
-  - /etc/martha/grott.ini, and (re)starting martha-grottserver and martha-grott;
+With --inverter (phase 5, the Growatt through Modbus TCP on its ShineLink), also:
+  - the fixed IP address of the ShineLink (--host, once) in /etc/martha/inverter, and from
+    there as martha_growatt_host in secrets.yaml;
+  - packages/solar_growatt.yaml (Home Assistant's Modbus integration reads the inverter);
   - the roles pv_power and pv_total in solar_entity, so the calculations use the generation;
   - the tab 'Omvormer' on the dashboard Elektriciteit.
-Then point the ShineLAN-X at martha's IP address (see the readme).
+deploy.ps1 runs --inverter when /etc/martha/inverter exists.
 """
 
 import argparse
 import datetime
 import os
 import re
-import secrets
 import sys
 import time
 
@@ -46,9 +45,8 @@ PACKAGES = ("packages/solar.yaml", "packages/solar_prices.yaml")
 GROWATT_PACKAGE = "packages/solar_growatt.yaml"
 STORAGE = m.CONFIG + "/packages/martha_storage.yaml"
 SECRETS = m.CONFIG + "/secrets.yaml"
-WEBHOOK_SECRET = "martha_grott_webhook"
-GROTT_INI = "/etc/martha/grott.ini"
-GROTT_SERVICES = ("martha-grottserver.service", "martha-grott.service")
+HOST_SECRET = "martha_growatt_host"
+INVERTER = "/etc/martha/inverter"   # IP address of the ShineLink; deploy.ps1 checks it exists
 PV_ROLES = {"solar_growatt_power": "pv_power", "solar_growatt_energy_total": "pv_total"}
 LTSS_DOMAINS = ("input_number", "input_datetime")
 DEFAULT_START = "2026-10-23"   # the panels are installed
@@ -166,44 +164,42 @@ def add_nordpool(token):
               "it needs internet; run again later")
 
 
-def ensure_webhook_secret():
-    """The webhook id Grott posts to, in secrets.yaml (0600).
-    Created once; returns it."""
+def inverter_host(host):
+    """The IP address of the ShineLink: from --host (stored in /etc/martha/inverter), else
+    the stored one."""
+    if host:
+        if not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host):
+            raise m.Error(f"--host must be an IPv4 address, got {host}")
+        os.makedirs(os.path.dirname(INVERTER), exist_ok=True)
+        with open(INVERTER, "w") as f:
+            f.write(host + "\n")
+        return host
+    try:
+        with open(INVERTER) as f:
+            return f.read().strip()
+    except OSError:
+        raise m.Error(f"no {INVERTER}; give the fixed IP address of the ShineLink with --host")
+
+
+def write_secret(key, value):
+    """Set key in secrets.yaml (0600); True when it changed."""
     text = ""
     if os.path.exists(SECRETS):
         with open(SECRETS) as f:
             text = f.read()
-    found = re.search(rf"^{WEBHOOK_SECRET}:\s*\"?([A-Za-z0-9_-]+)\"?\s*$", text, re.M)
-    if found:
-        return found.group(1)
-    webhook = "martha_grott_" + secrets.token_hex(16)
-    with open(SECRETS, "a") as f:
-        if text and not text.endswith("\n"):
-            f.write("\n")
-        f.write(f'{WEBHOOK_SECRET}: "{webhook}"\n')
-    os.chmod(SECRETS, 0o600)
-    m.log(f"added {WEBHOOK_SECRET} to {SECRETS}")
-    return webhook
-
-
-def setup_grott(webhook):
-    """Write /etc/martha/grott.ini and (re)start the Grott services."""
-    with open(os.path.join(TEMPLATES, "grott.ini.template")) as f:
-        ini = f.read().replace("__WEBHOOK_URL__", f"{m.HA_URL}/api/webhook/{webhook}")
-    os.makedirs(os.path.dirname(GROTT_INI), exist_ok=True)
-    with open(GROTT_INI + ".tmp", "w") as f:
-        f.write(ini)
-    os.chmod(GROTT_INI + ".tmp", 0o600)
-    os.replace(GROTT_INI + ".tmp", GROTT_INI)
-    if not os.path.exists("/usr/local/lib/martha/grott/grott.py"):
-        raise m.Error("Grott is not installed; run 1. download/download.ps1 and install.sh again")
-    m.run(["systemctl", "enable", *GROTT_SERVICES])
-    m.run(["systemctl", "restart", *GROTT_SERVICES])
-    time.sleep(3)
-    res = m.run(["systemctl", "is-active", *GROTT_SERVICES], check=False)
-    if res.stdout.split() != ["active", "active"]:
-        raise m.Error("Grott services not running; see journalctl -u martha-grott -u martha-grottserver")
-    m.log("Grott listens on port 5279 (journalctl -fu martha-grott)")
+    line = f'{key}: "{value}"'
+    if re.search(rf"^{re.escape(line)}\s*$", text, re.M):
+        return False
+    if re.search(rf"^{key}:", text, re.M):
+        text = re.sub(rf"^{key}:.*$", line, text, flags=re.M)
+    else:
+        text += ("\n" if text and not text.endswith("\n") else "") + line + "\n"
+    with open(SECRETS + ".tmp", "w") as f:
+        f.write(text)
+    os.chmod(SECRETS + ".tmp", 0o600)
+    os.replace(SECRETS + ".tmp", SECRETS)
+    m.log(f"{key} in {SECRETS}: {value}")
+    return True
 
 
 def write_pv_roles(ws):
@@ -272,7 +268,7 @@ def create_helpers(ws, start):
 def sql_entities(ws):
     """Entity ids of the SQL and template sensors in the packages, by unique_id."""
     return {e["unique_id"]: e["entity_id"] for e in ws.call("config/entity_registry/list")
-            if e.get("platform") in ("sql", "template")
+            if e.get("platform") in ("sql", "template", "modbus")
             and str(e.get("unique_id", "")).startswith("solar_")}
 
 
@@ -436,7 +432,8 @@ def main():
     p.add_argument("--start", default=DEFAULT_START,
                    help=f"start date of the investment, for a new helper (default {DEFAULT_START})")
     p.add_argument("--inverter", action="store_true",
-                   help="also set up the Growatt through Grott (phase 5)")
+                   help="also read the Growatt through Modbus TCP on its ShineLink (phase 5)")
+    p.add_argument("--host", help=f"fixed IP address of the ShineLink (stored in {INVERTER})")
     a = p.parse_args()
     datetime.date.fromisoformat(a.start)
     if os.geteuid() != 0:
@@ -451,14 +448,14 @@ def main():
     storage_changed = patch_storage()
     add_nordpool(token)
     packages = list(PACKAGES)
+    secret_changed = False
     if a.inverter:
-        webhook = ensure_webhook_secret()   # before the deploy: check_config needs the secret
+        # Before the deploy: check_config needs the secret.
+        secret_changed = write_secret(HOST_SECRET, inverter_host(a.host))
         packages.append(GROWATT_PACKAGE)
     deployed = deploy_packages(packages)
-    if storage_changed and not deployed:
+    if (storage_changed or secret_changed) and not deployed:
         restart()
-    if a.inverter:
-        setup_grott(webhook)
     ws = m.WebSocket(m.HA_URL, token)
     try:
         create_helpers(ws, a.start)
@@ -472,11 +469,6 @@ def main():
     # Fill solar_1m from the start now instead of waiting for the job.
     n = m.psql("SELECT solar_recompute(solar_start(), now())")
     m.log(f"calculated {n} minutes since the start")
-    if a.inverter:
-        ips = m.run(["hostname", "-I"], check=False).stdout.split()
-        m.log(f"set the server address of the ShineLAN-X to {ips[0] if ips else '<martha IP>'} "
-              "(port 5279), with a fixed IP for martha in the router")
-
 
 if __name__ == "__main__":
     try:
