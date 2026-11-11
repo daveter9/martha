@@ -502,6 +502,59 @@ LANGUAGE sql STABLE AS $$
     WHERE day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date
 $$;
 
+-- The table on the page Zonnepanelen: generation and net benefit now, today, this week (from
+-- Monday) and this month. Now: the last power of the inverter (W -> kW; unavailable at night
+-- counts as 0) and of the feed-in, valued at the contract prices of now. The periods: the sum
+-- of the days in solar_1d (lags up to ~5 minutes), benefit = saving on self-use + feed-in
+-- compensation - feed-in cost per kWh; the fixed feed-in cost per month is left out, as the
+-- fixed costs are on Elektriciteit (heat_home).
+CREATE OR REPLACE FUNCTION solar_home()
+RETURNS TABLE (pv_now double precision, benefit_now double precision,
+               pv_today double precision, benefit_today double precision,
+               pv_week double precision, benefit_week double precision,
+               pv_month double precision, benefit_month double precision)
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    v_day    date := (now() AT TIME ZONE 'Europe/Amsterdam')::date;
+    v_week   date := date_trunc('week', now() AT TIME ZONE 'Europe/Amsterdam')::date;
+    v_month  date := date_trunc('month', now() AT TIME ZONE 'Europe/Amsterdam')::date;
+    -- Entity ids in variables: TimescaleDB evaluates a function in a WHERE on the hypertable
+    -- ltss without the search path (see heat_home).
+    e_pv     text := solar_entity_id('pv_power');
+    e_export text := solar_entity_id('export_power');
+    e_tariff text := solar_entity_id('tariff');
+    v_pv     double precision;
+    v_export double precision;
+    v_tariff text;
+BEGIN
+    v_pv := coalesce((SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_pv
+                      ORDER BY time DESC LIMIT 1), 0) / 1000;
+    v_export := coalesce((SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_export
+                          ORDER BY time DESC LIMIT 1), 0);
+    v_tariff := (SELECT state FROM ltss WHERE entity_id = e_tariff AND state IN ('low', 'normal')
+                 ORDER BY time DESC LIMIT 1);
+    IF e_pv IS NOT NULL THEN
+        pv_now := v_pv;
+        benefit_now := greatest(v_pv - v_export, 0)
+                           * coalesce(solar_setting_now(CASE WHEN v_tariff = 'low' THEN 'import_low'
+                                                             ELSE 'import_normal' END), 0)
+                       + v_export * (coalesce(solar_setting_now('feed_in'), 0)
+                                     - coalesce(solar_setting_now('feed_in_cost'), 0));
+    END IF;
+    WITH d AS (
+        SELECT day, pv, coalesce(saving_self, 0) + coalesce(revenue_export, 0)
+                        - coalesce(cost_export, 0) AS benefit
+        FROM solar_1d
+        WHERE day >= least(v_week, v_month) AND day <= v_day
+          AND day >= (solar_start() AT TIME ZONE 'Europe/Amsterdam')::date)
+    SELECT sum(pv) FILTER (WHERE day = v_day), coalesce(sum(benefit) FILTER (WHERE day = v_day), 0),
+           sum(pv) FILTER (WHERE day >= v_week), coalesce(sum(benefit) FILTER (WHERE day >= v_week), 0),
+           sum(pv) FILTER (WHERE day >= v_month), coalesce(sum(benefit) FILTER (WHERE day >= v_month), 0)
+    INTO pv_today, benefit_today, pv_week, benefit_week, pv_month, benefit_month
+    FROM d;
+    RETURN NEXT;
+END $$;
+
 -- Self-use and self-sufficiency over the last 365 days, NULL without pv data.
 CREATE OR REPLACE FUNCTION solar_self_use_ratio()
 RETURNS TABLE (self_use_pct double precision, self_sufficiency_pct double precision, pv_days integer)

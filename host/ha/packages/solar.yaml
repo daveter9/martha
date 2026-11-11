@@ -19,6 +19,15 @@ sql:
     column: v
     query: SELECT round(self_use::numeric, 3) AS v FROM solar_totals() LIMIT 1;
 
+  - name: Zonnepanelen teruglevering
+    unique_id: solar_total_export
+    icon: mdi:transmission-tower-import
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total
+    column: v
+    query: SELECT round(export::numeric, 3) AS v FROM solar_totals() LIMIT 1;
+
   - name: Zonnepanelen besparing eigen gebruik
     unique_id: solar_total_saving_self
     icon: mdi:piggy-bank-outline
@@ -63,6 +72,67 @@ sql:
     state_class: total
     column: v
     query: SELECT round(benefit::numeric, 4) AS v FROM solar_totals() LIMIT 1;
+
+  # --- Page Zonnepanelen: generation and net benefit now, today, week, month (solar_home) --
+  - name: Zonnepanelen opwek nu
+    unique_id: solar_home_pv_now
+    icon: mdi:solar-power
+    unit_of_measurement: kW
+    device_class: power
+    column: v
+    query: SELECT round(pv_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen opbrengst nu
+    unique_id: solar_home_benefit_now
+    icon: mdi:cash-plus
+    unit_of_measurement: €/u
+    column: v
+    query: SELECT round(benefit_now::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen opwek vandaag
+    unique_id: solar_home_pv_today
+    icon: mdi:solar-power
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(pv_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen opbrengst vandaag
+    unique_id: solar_home_benefit_today
+    icon: mdi:cash-plus
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(benefit_today::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen opwek deze week
+    unique_id: solar_home_pv_week
+    icon: mdi:solar-power
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(pv_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen opbrengst deze week
+    unique_id: solar_home_benefit_week
+    icon: mdi:cash-plus
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(benefit_week::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen opwek deze maand
+    unique_id: solar_home_pv_month
+    icon: mdi:solar-power
+    unit_of_measurement: kWh
+    device_class: energy
+    column: v
+    query: SELECT round(pv_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
+
+  - name: Zonnepanelen opbrengst deze maand
+    unique_id: solar_home_benefit_month
+    icon: mdi:cash-plus
+    unit_of_measurement: €
+    column: v
+    query: SELECT round(benefit_month::numeric, 2) AS v FROM solar_home() LIMIT 1;
 
   # --- Contract comparison (V1), over the minutes with a day-ahead price -------------------
   - name: Zonnepanelen kosten huidig contract
