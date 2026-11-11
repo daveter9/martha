@@ -138,11 +138,12 @@ LANGUAGE sql STABLE AS $$
     ) r
     WHERE k <> ALL (solar_tariff_keys())
     UNION ALL
-    SELECT DISTINCT ON (entity_id) substr(entity_id, length('input_number.solar_') + 1),
+    SELECT substr(entity_id, length('input_number.solar_') + 1),
            '-infinity'::timestamptz, 'infinity'::timestamptz, value
-    FROM solar_setting
-    WHERE entity_id = ANY (SELECT 'input_number.solar_' || unnest(solar_tariff_keys()))
-    ORDER BY entity_id, time DESC
+    FROM (SELECT DISTINCT ON (entity_id) entity_id, value
+          FROM solar_setting
+          WHERE entity_id = ANY (SELECT 'input_number.solar_' || unnest(solar_tariff_keys()))
+          ORDER BY entity_id, time DESC) t
 $$;
 
 -- Current value of input_number.solar_<key> (NULL if it was never stored).
