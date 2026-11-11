@@ -930,7 +930,12 @@ BEGIN
         (SELECT sum(self_use) FROM solar_1d WHERE solar_1d.day >= v_month::date AND solar_1d.day <= v_day), 0);
     SELECT * INTO h FROM heat_1d WHERE heat_1d.day = v_day;
 
-    elec_cost_now   := v_power * CASE WHEN v_tariff = 'low' THEN p_low ELSE p_normal END;
+    -- Net (user's request, 2026-11-11): the feed-in now counts against the import, at the
+    -- same kWh price (netting).
+    elec_cost_now   := (coalesce(v_power, 0)
+                        - coalesce((SELECT ltss_numeric(state) FROM ltss WHERE entity_id = e_export
+                                    ORDER BY time DESC LIMIT 1), 0))
+                       * CASE WHEN v_tariff = 'low' THEN p_low ELSE p_normal END;
     SELECT coalesce(sum(gas_space), 0) * 4, coalesce(sum(gas_dhw), 0) * 4
     INTO gas_space_now, gas_dhw_now
     FROM heat_1m WHERE minute >= now() - INTERVAL '15 minutes';

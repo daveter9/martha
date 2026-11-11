@@ -256,10 +256,11 @@ def write(ws, token):
     use_today = heat_ids.get("heat_home_elec_today")
     if solar_ids.get("solar_home_pv_now") and use_today:
         path = DASHBOARDS["electricity"][0]
-        more[path] = {"Nu": [f"opwek {value(solar_ids['solar_home_pv_now'])}"]}
-        under_use[path] = {"Dag": [f"{percent(e, use_today)} {label}"
-                                   for label, e in (("net", heat_ids.get("heat_home_import_today")),
-                                                    ("pv", solar_ids.get("solar_home_self_today"))) if e]}
+        under_use[path] = {"Nu": [f"pv {value(solar_ids['solar_home_pv_now'])}"]}
+        grid, pv = heat_ids.get("heat_home_import_today"), solar_ids.get("solar_home_self_today")
+        if grid and pv:
+            under_use[path]["Dag"] = [f"{percent(grid, use_today)} net",
+                                       f"{percent(pv, use_today, [grid])} pv"]
     write_start(ws, [(*DASHBOARDS[k], home.get(k, [])) for k in shown], more,
                 under_use)   # last: it may restart HA
 
@@ -432,43 +433,69 @@ def now_table(values, use_unit, cost_unit, split=()):
         return None
 
     # HTML instead of a markdown table, so it can be centred (align passes HA's sanitizer).
-    def row(unit, i, part=None):
+    def row(unit, i, part=None, others=()):
         cells = []
         for c in cols:
             if part is None:
                 cells.append(number(by[c[i]]) if c[i] in by else "–")
             elif c[i] in part:
-                share = share_of(part[c[i]], by[c[i]]) if c[i] in by else ""
+                share = (share_of(part[c[i]], by[c[i]], [o[c[i]] for o in others if c[i] in o])
+                         if c[i] in by else "")
                 cells.append(number(part[c[i]]) + share)
             else:
                 cells.append("–")
         return (f'<tr><td valign="top">{unit}</td>'
                 + "".join(f'<td align="right">{x}</td>' for x in cells) + "</tr>")
-    extra = "".join(row(label, 1, {n: e for e, n in vals if e}) for label, vals in split)
+    parts = [{n: e for e, n in vals if e} for _, vals in split]
+    # The last row of the split: 100% minus the others, so the shares add up.
+    extra = "".join(row(label, 1, part, parts[:k] if k == len(parts) - 1 else ())
+                    for k, ((label, _), part) in enumerate(zip(split, parts)))
     corner = f"<small>{ago(*age)}</small>" if age else ""
     head = f"<tr><th>{corner}</th>" + "".join(f'<th align="right">{c[0]}</th>' for c in cols) + "</tr>"
     return {"type": "markdown",
             "content": f'<table align="center">{head}{row(use_unit, 1)}{extra}{row(cost_unit, 2)}</table>'}
 
 
-def share_of(part, whole):
-    """Jinja: '<br><small>(42%)</small>', the share of 'part' in 'whole', or nothing when
-    the whole is not a number above 0."""
+def _share(part, whole, others, fmt, empty):
+    """Jinja for the share of 'part' in 'whole' in whole percents, written with 'fmt' (with
+    '{pct}'), or 'empty'. With 'others' (the other parts of the split) it is 100 minus their
+    rounded shares, so the shares of a split always add up to 100%."""
+    calc = (" - ".join(["100"] + ["((100 * states('%s') | float(0) / w | float) | round(0) | int)" % o
+                                  for o in others])
+            if others else "(100 * p | float / w | float) | round(0) | int")
     return ("{%% set p = states('%(p)s') %%}{%% set w = states('%(w)s') %%}"
             "{%% if p | is_number and w | is_number and w | float > 0 %%}"
-            "<br><small>({{ (100 * p | float / w | float) | round(0) | int }}%%)</small>"
-            "{%% endif %%}") % {"p": part, "w": whole}
+            + fmt.replace("{pct}", "{{ %s }}%%%%" % calc)
+            + "{%% else %%}" + empty + "{%% endif %%}") % {"p": part, "w": whole}
 
 
-def percent(part, whole):
+def share_of(part, whole, others=()):
+    """Jinja: '<br><small>(42%)</small>', the share of 'part' in 'whole', or nothing."""
+    return _share(part, whole, others, "<br><small>({pct})</small>", "")
+
+
+def percent(part, whole, others=()):
     """Jinja: the share of 'part' in 'whole' as '42%', or '–'."""
-    return ("{%% set p = states('%(p)s') %%}{%% set w = states('%(w)s') %%}"
-            "{%% if p | is_number and w | is_number and w | float > 0 %%}"
-            "{{ (100 * p | float / w | float) | round(0) | int }}%%{%% else %%}–{%% endif %%}"
-            ) % {"p": part, "w": whole}
+    return _share(part, whole, others, "{pct}", "–")
 
 
-def now_today(values, horizontal=False, labels=None, more=None, under_use=None, age_last=False):
+def block_lines(values, labels=None, more=None, under_use=None):
+    """The lines per block of now_today(), as [(label, [line, ...])]: the use, 'under_use',
+    the costs, then 'more'. A block without lines is left out."""
+    by = {n: e for e, n in values if e}
+    out = []
+    for label, use, cost in BLOCKS:
+        if labels and label not in labels:
+            continue
+        lines = (([value(by[use])] if use in by else []) + list((under_use or {}).get(label, ()))
+                 + ([value(by[cost])] if cost in by else []) + list((more or {}).get(label, ())))
+        if lines:
+            out.append((label, lines))
+    return out
+
+
+def now_today(values, horizontal=False, labels=None, more=None, under_use=None, age_last=False,
+              pad=None):
     """Use and costs now and today (C25), as the user asked:
 
         **Nu**          **Dag**         **Week**        **Maand**
@@ -479,19 +506,18 @@ def now_today(values, horizontal=False, labels=None, more=None, under_use=None, 
     'values' are (entity_id, name) with the names of BLOCKS; a block without values is left
     out. 'labels' limits the blocks (Thuis shows only Nu and Dag); 'more' are extra lines per
     block label, under the use and the costs; 'under_use' extra lines between the two. With
-    'age_last' how long ago the measurement is goes at the very bottom, under all blocks (Thuis)."""
+    'age_last' how long ago the measurement is goes at the very bottom, under all blocks
+    (Thuis); 'pad' fills a block up to that many lines, so the boxes next to each other have
+    it at the same height."""
     by = {n: e for e, n in values if e}
     age = next(((e, n.split(":", 1)[1]) for n, e in by.items() if n.startswith("_age:")), None)
     blocks = []
-    for label, use, cost in BLOCKS:
-        if labels and label not in labels:
-            continue
-        lines = ([value(by[use])] if use in by else []) + list((under_use or {}).get(label, ()))             + ([value(by[cost])] if cost in by else []) + list((more or {}).get(label, ()))
+    for label, lines in block_lines(values, labels, more, under_use):
+        lines += ["&nbsp;"] * ((pad or {}).get(label, 0) - len(lines))
         # How long ago the measurement behind 'Nu' is: small, at the bottom of the Nu block.
-        if label == "Nu" and lines and age and not age_last:
+        if label == "Nu" and age and not age_last:
             lines.append(f"<small>{ago(*age)}</small>")
-        if lines:
-            blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
+        blocks.append(f"<b>{label}</b><br>" + "<br>".join(lines))
     if not blocks:
         return None
     if age_last and age:
@@ -517,10 +543,18 @@ def write_start(ws, dashboards, more=None, under_use=None):
     name = ws.call("get_config").get("location_name") or "Thuis"
     # Three columns, one button each: the icon and name, then Nu and Dag with use and
     # costs. A markdown card, because it can hold all of that and still has a tap action.
+    # Every box as long as the longest per block, so the age is at the bottom of each box
+    # (user's request, 2026-11-11).
+    args = {path: dict(labels=("Nu", "Dag"), more=(more or {}).get(path),
+                       under_use=(under_use or {}).get(path))
+            for path, _, _, _ in dashboards}
+    pad = {}
+    for path, _, _, values in dashboards:
+        for label, lines in block_lines(values, **args[path]):
+            pad[label] = max(pad.get(label, 0), len(lines))
     buttons = []
     for path, title, icon, values in dashboards:
-        body = now_today(values, labels=("Nu", "Dag"), more=(more or {}).get(path),
-                         under_use=(under_use or {}).get(path), age_last=True)
+        body = now_today(values, age_last=True, pad=pad, **args[path])
         content = (f'<center><ha-icon icon="{icon}"></ha-icon><br><b>{title}</b>'
                    + ("<br><br>" + body["content"].replace("\n\n", "<br><br>") if body else "")
                    + "</center>")
