@@ -182,6 +182,11 @@ niet: wijzig het op de dag dat het ingaat.
   herstart telt niet als wijziging. Een waarde geldt vanaf het moment van wijzigen, behalve de
   eerste wijziging na de startdatum: die geldt vanaf de startdatum. Zo kun je de tarieven
   een paar dagen na de start invullen.
+  *Valkuil* (2026-11-11): wordt de startdatum later gezet dan de laatste tariefwijziging,
+  dan geldt de eerstvolgende wijziging, ook een tikfout, vanaf de nieuwe startdatum. Zo
+  rekende de hele dag 11-11 met een inkoopprijs van € 1,27 die om 20:46 een minuut had
+  gestaan. Oplossing: de foute rijen uit `solar_setting` halen en `solar_recompute(solar_start(),
+  now())` (en `heat_recompute` voor dezelfde periode) draaien.
 - **Jobs:** `solar_job` (elke 5 minuten) rekent de minuten sinds de vorige run en altijd de
   laatste 6 uur opnieuw uit, plus de dagen die daarbij horen in `solar_1d`. `solar_results_job`
   (elk uur) draait de batterijsimulatie over de laatste 365 dagen en maakt de tabel met het
